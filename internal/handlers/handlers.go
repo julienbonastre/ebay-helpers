@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/julienbonastre/ebay-helpers/internal/calculator"
@@ -160,6 +161,17 @@ func (h *Handler) GetOffers(w http.ResponseWriter, r *http.Request) {
 	offers, err := h.ebayClient.GetOffers(r.Context(), sku, limit, offset)
 	if err != nil {
 		log.Printf("GetOffers error: %v", err)
+		// Check if it's a SKU validation error (likely empty inventory)
+		if strings.Contains(err.Error(), "invalid value for a SKU") || strings.Contains(err.Error(), "25707") {
+			// Return empty result instead of error
+			jsonResponse(w, http.StatusOK, map[string]interface{}{
+				"offers": []interface{}{},
+				"total":  0,
+				"limit":  limit,
+				"offset": offset,
+			})
+			return
+		}
 		errorResponse(w, http.StatusInternalServerError, err.Error())
 		return
 	}
