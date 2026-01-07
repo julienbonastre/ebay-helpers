@@ -1,0 +1,18 @@
+{
+  "extraCover": {
+    "basePricePer100": 4.00,
+    "thresholdAUD": 100,
+    "warningThresholdAUD": 250,
+    "discountBands": {
+      "0": 0,
+      "1": 0.40,
+      "2": 0.40,
+      "3": 0.40,
+      "4": 0.40,
+      "5": 0.40
+    },
+    "description": "Australia Post Extra Cover (insurance) for international parcels"
+  },
+  "source": "Australia Post",
+  "lastUpdated": "2025-01-07"
+}
