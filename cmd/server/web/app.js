@@ -1,3 +1,21 @@
+// Theme handling
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    // Default to dark mode
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-mode');
+        document.getElementById('themeIcon').innerHTML = '&#9790;'; // Moon
+    } else {
+        document.getElementById('themeIcon').innerHTML = '&#9728;'; // Sun
+    }
+}
+
+function toggleTheme() {
+    const isLight = document.body.classList.toggle('light-mode');
+    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+    document.getElementById('themeIcon').innerHTML = isLight ? '&#9790;' : '&#9728;';
+}
+
 // State
 let isAuthenticated = false;
 let listings = [];
@@ -11,6 +29,7 @@ let weightBands = [];
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
+    initTheme();
     setupTabs();
     await checkAuthStatus();
     await loadReferenceData();
@@ -42,11 +61,14 @@ function showTab(tabId) {
 }
 
 // Auth
+let isConfigured = false;
+
 async function checkAuthStatus() {
     try {
         const res = await fetch('/api/auth/status');
         const data = await res.json();
         isAuthenticated = data.authenticated;
+        isConfigured = data.configured;
         updateAuthUI();
     } catch (err) {
         console.error('Auth check failed:', err);
@@ -58,14 +80,24 @@ function updateAuthUI() {
     const text = document.getElementById('statusText');
     const btn = document.getElementById('authBtn');
 
-    if (isAuthenticated) {
+    if (!isConfigured) {
+        dot.classList.remove('connected');
+        dot.style.background = 'var(--warning)';
+        text.textContent = 'Not Configured';
+        btn.textContent = 'Setup Required';
+        btn.title = 'Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET environment variables';
+    } else if (isAuthenticated) {
+        dot.style.background = '';
         dot.classList.add('connected');
         text.textContent = 'Connected';
         btn.textContent = 'Reconnect';
+        btn.title = '';
     } else {
+        dot.style.background = '';
         dot.classList.remove('connected');
         text.textContent = 'Not Connected';
         btn.textContent = 'Connect to eBay';
+        btn.title = '';
     }
 }
 
@@ -73,6 +105,13 @@ async function handleAuth() {
     try {
         const res = await fetch('/api/auth/url');
         const data = await res.json();
+
+        // Check if the URL looks valid (has a client_id)
+        if (!data.url || data.url.includes('client_id=&') || data.url.includes('client_id=""')) {
+            alert('eBay API credentials not configured.\n\nSet these environment variables before starting the server:\n\nEBAY_CLIENT_ID=your-client-id\nEBAY_CLIENT_SECRET=your-client-secret');
+            return;
+        }
+
         window.location.href = data.url;
     } catch (err) {
         alert('Failed to get auth URL: ' + err.message);

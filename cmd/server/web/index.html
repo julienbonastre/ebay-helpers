@@ -5,7 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>La Troverie - eBay Postage Helper</title>
     <style>
+        /* Dark mode (default) */
         :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --success: #22c55e;
+            --warning: #eab308;
+            --danger: #ef4444;
+            --bg: #0f172a;
+            --card: #1e293b;
+            --border: #334155;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --input-bg: #1e293b;
+            --result-bg: #1e3a5f;
+            --result-border: #3b82f6;
+            --warning-bg: #422006;
+            --warning-border: #a16207;
+        }
+        /* Light mode */
+        .light-mode {
             --primary: #2563eb;
             --primary-dark: #1d4ed8;
             --success: #16a34a;
@@ -16,6 +35,11 @@
             --border: #e2e8f0;
             --text: #1e293b;
             --text-muted: #64748b;
+            --input-bg: #ffffff;
+            --result-bg: #f0f9ff;
+            --result-border: #bae6fd;
+            --warning-bg: #fef3c7;
+            --warning-border: #fcd34d;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -91,10 +115,12 @@
             border: 1px solid var(--border);
             border-radius: 0.375rem;
             font-size: 0.875rem;
+            background: var(--input-bg);
+            color: var(--text);
         }
         .result-box {
-            background: #f0f9ff;
-            border: 1px solid #bae6fd;
+            background: var(--result-bg);
+            border: 1px solid var(--result-border);
             border-radius: 0.375rem;
             padding: 1rem;
             margin-top: 1rem;
@@ -110,12 +136,13 @@
             color: var(--text-muted);
         }
         .warning-box {
-            background: #fef3c7;
-            border: 1px solid #fcd34d;
+            background: var(--warning-bg);
+            border: 1px solid var(--warning-border);
             border-radius: 0.375rem;
             padding: 0.75rem;
             margin-top: 0.5rem;
             font-size: 0.875rem;
+            color: var(--warning);
         }
 
         /* Listings Table */
@@ -185,6 +212,21 @@
             margin-bottom: 1rem;
         }
         .action-bar.hidden { display: none; }
+
+        /* Theme toggle */
+        .theme-toggle {
+            background: var(--border);
+            border: none;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text);
+            font-size: 1.2rem;
+        }
+        .theme-toggle:hover { background: var(--text-muted); }
     </style>
 </head>
 <body>
@@ -192,6 +234,9 @@
         <div class="container">
             <h1><span>La Troverie</span> - eBay Postage Helper</h1>
             <div class="auth-status">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+                    <span id="themeIcon">&#9728;</span>
+                </button>
                 <div class="status-dot" id="statusDot"></div>
                 <span id="statusText">Not Connected</span>
                 <button class="btn btn-primary" id="authBtn" onclick="handleAuth()">Connect to eBay</button>

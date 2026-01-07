@@ -44,6 +44,7 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"status":        "ok",
 		"authenticated": h.ebayClient.IsAuthenticated(),
+		"configured":    h.ebayClient.IsConfigured(),
 	})
 }
 
@@ -89,8 +90,9 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 // GetAuthStatus returns current auth status
 func (h *Handler) GetAuthStatus(w http.ResponseWriter, r *http.Request) {
-	jsonResponse(w, http.StatusOK, map[string]bool{
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"authenticated": h.ebayClient.IsAuthenticated(),
+		"configured":    h.ebayClient.IsConfigured(),
 	})
 }
 

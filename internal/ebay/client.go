@@ -118,6 +118,11 @@ func (c *Client) IsAuthenticated() bool {
 	return c.token != nil && c.token.Valid()
 }
 
+// IsConfigured returns true if eBay API credentials are set
+func (c *Client) IsConfigured() bool {
+	return c.config.ClientID != "" && c.config.ClientSecret != ""
+}
+
 // RefreshToken refreshes the access token if needed
 func (c *Client) RefreshToken(ctx context.Context) error {
 	if c.token == nil {
