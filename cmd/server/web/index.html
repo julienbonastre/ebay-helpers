@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Troverie - eBay Postage Helper</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --success: #16a34a;
+            --warning: #ca8a04;
+            --danger: #dc2626;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --text-muted: #64748b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 1rem; }
+        header {
+            background: var(--card);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 0;
+            margin-bottom: 1.5rem;
+        }
+        header .container { display: flex; justify-content: space-between; align-items: center; }
+        h1 { font-size: 1.5rem; font-weight: 600; }
+        h1 span { color: var(--primary); }
+        .auth-status {
+            display: flex; align-items: center; gap: 0.75rem;
+        }
+        .status-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--danger);
+        }
+        .status-dot.connected { background: var(--success); }
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-secondary { background: var(--border); color: var(--text); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .card-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .card-body { padding: 1rem; }
+
+        /* Calculator Section */
+        .calculator-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+        }
+        .result-box {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+        .result-total {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        .result-breakdown {
+            margin-top: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .warning-box {
+            background: #fef3c7;
+            border: 1px solid #fcd34d;
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        /* Listings Table */
+        .table-container { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: var(--bg); font-weight: 600; position: sticky; top: 0; }
+        tr:hover { background: var(--bg); }
+        .thumbnail { width: 50px; height: 50px; object-fit: cover; border-radius: 0.25rem; }
+        .price { font-weight: 600; }
+        .diff-ok { color: var(--success); }
+        .diff-warn { color: var(--warning); }
+        .diff-bad { color: var(--danger); font-weight: 600; }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        .page-info { color: var(--text-muted); font-size: 0.875rem; }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            justify-content: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+        .spinner {
+            width: 24px; height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Tabs */
+        .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+        .tab {
+            padding: 0.75rem 1.5rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            color: var(--text-muted);
+        }
+        .tab:hover { color: var(--text); }
+        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Checkbox */
+        .checkbox-cell { text-align: center; }
+        input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+
+        /* Action bar */
+        .action-bar {
+            background: var(--primary);
+            color: white;
+            padding: 0.75rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 0.375rem;
+            margin-bottom: 1rem;
+        }
+        .action-bar.hidden { display: none; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><span>La Troverie</span> - eBay Postage Helper</h1>
+            <div class="auth-status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Not Connected</span>
+                <button class="btn btn-primary" id="authBtn" onclick="handleAuth()">Connect to eBay</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="tabs">
+            <div class="tab active" data-tab="calculator">Calculator</div>
+            <div class="tab" data-tab="listings">Listings</div>
+            <div class="tab" data-tab="reference">Reference Data</div>
+        </div>
+
+        <!-- Calculator Tab -->
+        <div class="tab-content active" id="calculator">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Shipping Cost Calculator</h2>
+                </div>
+                <div class="card-body">
+                    <div class="calculator-grid">
+                        <div class="form-group">
+                            <label>Item Value (AUD)</label>
+                            <input type="number" id="calcValue" value="125" min="0" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label>Weight Band</label>
+                            <select id="calcWeight">
+                                <option value="XSmall">XSmall [< 250g]</option>
+                                <option value="Small">Small [250 - 500g]</option>
+                                <option value="Medium" selected>Medium [500 - 1kg]</option>
+                                <option value="Large">Large [1 - 1.5kg]</option>
+                                <option value="XLarge">XLarge [1.5kg - 2kg]</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Brand</label>
+                            <select id="calcBrand"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Country of Origin Override</label>
+                            <select id="calcCOO">
+                                <option value="">Use Brand Default</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Discount Band</label>
+                            <select id="calcDiscount">
+                                <option value="0">Band 0 (Base)</option>
+                                <option value="1">Band 1 (5% off)</option>
+                                <option value="2">Band 2 (15% off)</option>
+                                <option value="3">Band 3 (20% off)</option>
+                                <option value="4">Band 4 (25% off)</option>
+                                <option value="5">Band 5 (30% off)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="calcExtraCover"> Include Extra Cover (Insurance)
+                            </label>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="calculate()">Calculate</button>
+
+                    <div class="result-box" id="calcResult" style="display:none;">
+                        <div class="result-total">$<span id="resultTotal">0.00</span> AUD</div>
+                        <div class="result-breakdown" id="resultBreakdown"></div>
+                    </div>
+                    <div class="warning-box" id="calcWarning" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Listings Tab -->
+        <div class="tab-content" id="listings">
+            <div class="action-bar hidden" id="actionBar">
+                <span><strong id="selectedCount">0</strong> items selected</span>
+                <button class="btn btn-success" onclick="bulkResolve()">Resolve Selected</button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>Active Listings</h2>
+                    <button class="btn btn-secondary" onclick="loadListings()">Refresh</button>
+                </div>
+                <div class="card-body">
+                    <div class="loading" id="listingsLoading">
+                        <div class="spinner"></div>
+                    </div>
+                    <div class="table-container" id="listingsTable" style="display:none;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="checkbox-cell"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                                    <th>Image</th>
+                                    <th>Title</th>
+                                    <th>SKU</th>
+                                    <th>Price</th>
+                                    <th>Brand</th>
+                                    <th>Weight</th>
+                                    <th>Current US Postage</th>
+                                    <th>Calculated</th>
+                                    <th>Diff</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="listingsBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="listingsEmpty" style="display:none; padding: 2rem; text-align: center; color: var(--text-muted);">
+                        No listings found. Connect to eBay to load your inventory.
+                    </div>
+                </div>
+                <div class="pagination" id="listingsPagination" style="display:none;">
+                    <div class="page-info">
+                        Showing <span id="pageStart">0</span>-<span id="pageEnd">0</span> of <span id="pageTotal">0</span>
+                    </div>
+                    <div>
+                        <button class="btn btn-secondary btn-sm" id="prevPage" onclick="prevPage()">Previous</button>
+                        <button class="btn btn-secondary btn-sm" id="nextPage" onclick="nextPage()">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reference Tab -->
+        <div class="tab-content" id="reference">
+            <div class="card">
+                <div class="card-header"><h2>Tariff Rates by Country</h2></div>
+                <div class="card-body">
+                    <table id="tariffTable">
+                        <thead><tr><th>Country</th><th>Tariff Rate</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h2>Brand → Country of Origin</h2></div>
+                <div class="card-body">
+                    <table id="brandTable">
+                        <thead><tr><th>Brand</th><th>Primary COO</th><th>Tariff Rate</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h2>Weight Bands (Zone 3 - USA/Canada)</h2></div>
+                <div class="card-body">
+                    <table id="weightTable">
+                        <thead><tr><th>Band</th><th>Weight Range</th><th>Base Price (AUD)</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
