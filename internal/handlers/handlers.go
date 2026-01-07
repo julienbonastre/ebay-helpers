@@ -63,27 +63,43 @@ func (h *Handler) GetAuthURL(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
+	errParam := r.URL.Query().Get("error")
+	errDesc := r.URL.Query().Get("error_description")
+
+	log.Printf("OAuth callback received - code: %v, state: %s, error: %s", code != "", state, errParam)
+
+	if errParam != "" {
+		log.Printf("OAuth error from eBay: %s - %s", errParam, errDesc)
+		http.Error(w, "eBay OAuth error: "+errDesc, http.StatusBadRequest)
+		return
+	}
 
 	h.mu.RLock()
 	expectedState := h.oauthState
 	h.mu.RUnlock()
 
+	log.Printf("State check - received: %s, expected: %s", state, expectedState)
+
 	if state != expectedState {
+		log.Printf("State mismatch!")
 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
 		return
 	}
 
 	if code == "" {
+		log.Printf("Missing authorization code")
 		http.Error(w, "Missing authorization code", http.StatusBadRequest)
 		return
 	}
 
+	log.Printf("Exchanging code for token...")
 	if err := h.ebayClient.ExchangeCode(r.Context(), code); err != nil {
 		log.Printf("OAuth exchange error: %v", err)
 		http.Error(w, "Failed to authenticate: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("OAuth success! Token obtained.")
 	// Redirect to the main app
 	http.Redirect(w, r, "/?auth=success", http.StatusFound)
 }
