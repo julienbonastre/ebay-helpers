@@ -112,7 +112,36 @@ async function handleAuth() {
             return;
         }
 
-        window.location.href = data.url;
+        // Open OAuth in new window
+        const authWindow = window.open(data.url, 'ebay-auth', 'width=600,height=700');
+
+        // Poll for auth completion
+        const pollInterval = setInterval(async () => {
+            try {
+                const statusRes = await fetch('/api/auth/status');
+                const statusData = await statusRes.json();
+
+                if (statusData.authenticated) {
+                    clearInterval(pollInterval);
+                    if (authWindow && !authWindow.closed) {
+                        authWindow.close();
+                    }
+                    await checkAuthStatus();
+                    alert('Successfully connected to eBay!');
+                }
+            } catch (err) {
+                console.error('Auth polling error:', err);
+            }
+        }, 1000);
+
+        // Stop polling if window closed manually
+        const closeCheck = setInterval(() => {
+            if (authWindow && authWindow.closed) {
+                clearInterval(pollInterval);
+                clearInterval(closeCheck);
+                checkAuthStatus(); // Update UI in case they completed it
+            }
+        }, 500);
     } catch (err) {
         alert('Failed to get auth URL: ' + err.message);
     }
