@@ -202,3 +202,174 @@ func (db *DB) GetSyncHistory(accountID int64, limit int) ([]SyncHistory, error) 
 	}
 	return history, rows.Err()
 }
+
+// BrandCOOMapping represents a brand to country of origin mapping
+type BrandCOOMapping struct {
+	ID         int64     `json:"id"`
+	BrandName  string    `json:"brandName"`
+	PrimaryCOO string    `json:"primaryCoo"`
+	Notes      string    `json:"notes,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+// TariffRate represents a tariff rate by country
+type TariffRate struct {
+	ID            int64     `json:"id"`
+	CountryName   string    `json:"countryName"`
+	TariffRate    float64   `json:"tariffRate"`
+	Notes         string    `json:"notes,omitempty"`
+	EffectiveDate string    `json:"effectiveDate,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+// GetAllBrandCOOMappings returns all brand-COO mappings
+func (db *DB) GetAllBrandCOOMappings() ([]BrandCOOMapping, error) {
+	rows, err := db.Query(`
+		SELECT id, brand_name, primary_coo, COALESCE(notes, ''), created_at, updated_at
+		FROM brand_coo_mappings
+		ORDER BY brand_name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var mappings []BrandCOOMapping
+	for rows.Next() {
+		var m BrandCOOMapping
+		err := rows.Scan(&m.ID, &m.BrandName, &m.PrimaryCOO, &m.Notes, &m.CreatedAt, &m.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		mappings = append(mappings, m)
+	}
+	return mappings, rows.Err()
+}
+
+// GetBrandCOO returns the COO for a specific brand
+func (db *DB) GetBrandCOO(brandName string) (string, error) {
+	var coo string
+	err := db.QueryRow(`
+		SELECT primary_coo
+		FROM brand_coo_mappings
+		WHERE brand_name = ?
+	`, brandName).Scan(&coo)
+	if err == sql.ErrNoRows {
+		return "", nil // Brand not found, return empty string
+	}
+	return coo, err
+}
+
+// CreateBrandCOOMapping creates a new brand-COO mapping
+func (db *DB) CreateBrandCOOMapping(brandName, primaryCOO, notes string) (int64, error) {
+	result, err := db.Exec(`
+		INSERT INTO brand_coo_mappings (brand_name, primary_coo, notes)
+		VALUES (?, ?, ?)
+	`, brandName, primaryCOO, notes)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// UpdateBrandCOOMapping updates an existing brand-COO mapping
+func (db *DB) UpdateBrandCOOMapping(id int64, brandName, primaryCOO, notes string) error {
+	_, err := db.Exec(`
+		UPDATE brand_coo_mappings
+		SET brand_name = ?, primary_coo = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, brandName, primaryCOO, notes, id)
+	return err
+}
+
+// DeleteBrandCOOMapping deletes a brand-COO mapping
+func (db *DB) DeleteBrandCOOMapping(id int64) error {
+	_, err := db.Exec("DELETE FROM brand_coo_mappings WHERE id = ?", id)
+	return err
+}
+
+// GetAllTariffRates returns all tariff rates
+func (db *DB) GetAllTariffRates() ([]TariffRate, error) {
+	rows, err := db.Query(`
+		SELECT id, country_name, tariff_rate, COALESCE(notes, ''), COALESCE(effective_date, ''), created_at, updated_at
+		FROM tariff_rates
+		ORDER BY country_name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rates []TariffRate
+	for rows.Next() {
+		var r TariffRate
+		err := rows.Scan(&r.ID, &r.CountryName, &r.TariffRate, &r.Notes, &r.EffectiveDate, &r.CreatedAt, &r.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		rates = append(rates, r)
+	}
+	return rates, rows.Err()
+}
+
+// GetTariffRate returns the tariff rate for a specific country
+func (db *DB) GetTariffRate(countryName string) (float64, error) {
+	var rate float64
+	err := db.QueryRow(`
+		SELECT tariff_rate
+		FROM tariff_rates
+		WHERE country_name = ?
+	`, countryName).Scan(&rate)
+	if err == sql.ErrNoRows {
+		return 0, nil // Country not found, return 0%
+	}
+	return rate, err
+}
+
+// SeedInitialData seeds the database with initial brand-COO mappings and tariff rates
+func (db *DB) SeedInitialData() error {
+	// Check if already seeded
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM brand_coo_mappings").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil // Already seeded
+	}
+
+	// Seed brand-COO mappings (from calculator/data.go)
+	brandMappings := map[string]string{
+		"Alice McCall": "China", "Arnhem": "India", "Bec + Bridge": "China",
+		"Bronx and Banco": "China", "Camilla": "India", "Faithfull The Brand": "Indonesia",
+		"Free People": "China", "Kookai": "China", "Lack of Color": "China",
+		"Lele Sadoughi": "United States", "Love Bonfire": "China", "LoveShackFancy": "China",
+		"Nine Lives Bazaar": "China", "Reebok x Maison": "Vietnam", "Sabbi": "Australia",
+		"Selkie": "China", "Spell": "China", "Tree of Life": "India", "Wildfox": "China",
+	}
+
+	for brand, coo := range brandMappings {
+		if _, err := db.CreateBrandCOOMapping(brand, coo, ""); err != nil {
+			return fmt.Errorf("failed to seed brand %s: %w", brand, err)
+		}
+	}
+
+	// Seed tariff rates (from calculator/data.go)
+	tariffRates := map[string]float64{
+		"China": 0.20, "India": 0.50, "Indonesia": 0.19, "Vietnam": 0.20,
+		"Mexico": 0.25, "Australia": 0.10, "United States": 0.00,
+	}
+
+	for country, rate := range tariffRates {
+		_, err := db.Exec(`
+			INSERT INTO tariff_rates (country_name, tariff_rate, notes, effective_date)
+			VALUES (?, ?, ?, ?)
+		`, country, rate, "IEEPA Reciprocal Tariff", "2025-02-01")
+		if err != nil {
+			return fmt.Errorf("failed to seed tariff for %s: %w", country, err)
+		}
+	}
+
+	return nil
+}
