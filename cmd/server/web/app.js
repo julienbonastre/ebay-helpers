@@ -305,8 +305,19 @@ async function loadListings() {
 
     try {
         const offset = currentPage * pageSize;
-        const res = await fetch(`/api/offers?limit=${pageSize}&offset=${offset}`);
+        console.log(`Fetching offers: limit=${pageSize}, offset=${offset}`);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
+        const res = await fetch(`/api/offers?limit=${pageSize}&offset=${offset}`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        console.log(`Response status: ${res.status}`);
         const data = await res.json();
+        console.log('Response data:', data);
 
         if (data.error) {
             throw new Error(data.error);
@@ -320,7 +331,11 @@ async function loadListings() {
         console.error('Failed to load listings:', err);
         document.getElementById('listingsLoading').style.display = 'none';
         document.getElementById('listingsEmpty').style.display = 'block';
-        document.getElementById('listingsEmpty').textContent = 'Failed to load: ' + err.message;
+        if (err.name === 'AbortError') {
+            document.getElementById('listingsEmpty').textContent = 'Request timed out. Please try again.';
+        } else {
+            document.getElementById('listingsEmpty').textContent = 'Failed to load: ' + err.message;
+        }
     }
 }
 

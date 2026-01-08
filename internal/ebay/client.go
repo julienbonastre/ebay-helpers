@@ -300,6 +300,48 @@ type FulfillmentPoliciesResponse struct {
 	Total               int                 `json:"total,omitempty"`
 }
 
+// PaymentPolicy represents a payment policy
+type PaymentPolicy struct {
+	PaymentPolicyID string          `json:"paymentPolicyId,omitempty"`
+	Name            string          `json:"name,omitempty"`
+	MarketplaceID   string          `json:"marketplaceId,omitempty"`
+	PaymentMethods  []PaymentMethod `json:"paymentMethods,omitempty"`
+	ImmediatePay    bool            `json:"immediatePay,omitempty"`
+}
+
+// PaymentMethod holds payment method details
+type PaymentMethod struct {
+	PaymentMethodType string `json:"paymentMethodType,omitempty"`
+}
+
+// PaymentPoliciesResponse is the response from getPaymentPolicies
+type PaymentPoliciesResponse struct {
+	PaymentPolicies []PaymentPolicy `json:"paymentPolicies,omitempty"`
+	Total           int             `json:"total,omitempty"`
+}
+
+// ReturnPolicy represents a return policy
+type ReturnPolicy struct {
+	ReturnPolicyID           string       `json:"returnPolicyId,omitempty"`
+	Name                     string       `json:"name,omitempty"`
+	MarketplaceID            string       `json:"marketplaceId,omitempty"`
+	ReturnsAccepted          bool         `json:"returnsAccepted,omitempty"`
+	ReturnPeriod             *TimeDuration `json:"returnPeriod,omitempty"`
+	ReturnShippingCostPayer  string       `json:"returnShippingCostPayer,omitempty"`
+}
+
+// TimeDuration represents a time duration
+type TimeDuration struct {
+	Value int    `json:"value,omitempty"`
+	Unit  string `json:"unit,omitempty"` // "DAY", "MONTH"
+}
+
+// ReturnPoliciesResponse is the response from getReturnPolicies
+type ReturnPoliciesResponse struct {
+	ReturnPolicies []ReturnPolicy `json:"returnPolicies,omitempty"`
+	Total          int            `json:"total,omitempty"`
+}
+
 // GetInventoryItems retrieves all inventory items
 func (c *Client) GetInventoryItems(ctx context.Context, limit, offset int) (*InventoryItemsResponse, error) {
 	path := fmt.Sprintf("/sell/inventory/v1/inventory_item?limit=%d&offset=%d", limit, offset)
@@ -363,6 +405,50 @@ func (c *Client) GetFulfillmentPolicies(ctx context.Context, marketplaceID strin
 	}
 
 	var result FulfillmentPoliciesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// GetPaymentPolicies retrieves all payment policies
+func (c *Client) GetPaymentPolicies(ctx context.Context, marketplaceID string) (*PaymentPoliciesResponse, error) {
+	path := "/sell/account/v1/payment_policy?marketplace_id=" + url.QueryEscape(marketplaceID)
+
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result PaymentPoliciesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// GetReturnPolicies retrieves all return policies
+func (c *Client) GetReturnPolicies(ctx context.Context, marketplaceID string) (*ReturnPoliciesResponse, error) {
+	path := "/sell/account/v1/return_policy?marketplace_id=" + url.QueryEscape(marketplaceID)
+
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result ReturnPoliciesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
