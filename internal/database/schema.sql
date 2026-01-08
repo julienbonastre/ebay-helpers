@@ -98,9 +98,32 @@ CREATE TABLE IF NOT EXISTS offers (
     UNIQUE(account_id, offer_id)
 );
 
+-- Brand to Country of Origin mappings (user-editable)
+CREATE TABLE IF NOT EXISTS brand_coo_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    brand_name TEXT NOT NULL UNIQUE,        -- Brand name (e.g., "Free People")
+    primary_coo TEXT NOT NULL,              -- Country of Origin (e.g., "China", "India")
+    notes TEXT,                             -- Optional notes about the brand/supplier
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tariff rates by country (less frequently changed, government policy)
+CREATE TABLE IF NOT EXISTS tariff_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    country_name TEXT NOT NULL UNIQUE,      -- e.g., "China", "Vietnam"
+    tariff_rate REAL NOT NULL,              -- e.g., 0.20 for 20%
+    notes TEXT,                             -- Context about the tariff
+    effective_date DATE,                    -- When this rate became effective
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_accounts_active ON accounts(is_active);
 CREATE INDEX IF NOT EXISTS idx_inventory_sku ON inventory_items(account_id, sku);
 CREATE INDEX IF NOT EXISTS idx_offers_sku ON offers(account_id, sku);
 CREATE INDEX IF NOT EXISTS idx_offers_status ON offers(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_sync_history_account ON sync_history(account_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_brand_coo_brand ON brand_coo_mappings(brand_name);
+CREATE INDEX IF NOT EXISTS idx_tariff_country ON tariff_rates(country_name);
