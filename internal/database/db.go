@@ -19,16 +19,24 @@ type DB struct {
 
 // Account represents an eBay account profile
 type Account struct {
-	ID            int64     `json:"id"`
-	Name          string    `json:"name"`
-	Environment   string    `json:"environment"` // "production" or "sandbox"
-	MarketplaceID string    `json:"marketplaceId"`
-	ClientID      string    `json:"clientId,omitempty"`
-	ClientSecret  string    `json:"clientSecret,omitempty"`
-	RedirectURI   string    `json:"redirectUri,omitempty"`
-	IsActive      bool      `json:"isActive"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID            int64      `json:"id"`
+	Name          string     `json:"name"`
+	Environment   string     `json:"environment"` // "production" or "sandbox"
+	MarketplaceID string     `json:"marketplaceId"`
+	ClientID      string     `json:"clientId,omitempty"`
+	ClientSecret  string     `json:"clientSecret,omitempty"`
+	RedirectURI   string     `json:"redirectUri,omitempty"`
+
+	// OAuth tokens (omitted from JSON for security)
+	AccessToken   string     `json:"-"`
+	RefreshToken  string     `json:"-"`
+	TokenType     string     `json:"-"`
+	TokenExpiry   *time.Time `json:"-"`
+
+	IsActive      bool       `json:"isActive"`
+	IsConnected   bool       `json:"isConnected"` // Has valid tokens
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
 // SyncHistory represents a sync operation record
@@ -79,6 +87,50 @@ func (db *DB) CreateAccount(acc *Account) error {
 	}
 	acc.ID = id
 	return nil
+}
+
+// UpdateAccountCredentials updates just the OAuth credentials for an account
+func (db *DB) UpdateAccountCredentials(accountID int64, clientID, clientSecret string) error {
+	_, err := db.Exec(`
+		UPDATE accounts
+		SET client_id = ?, client_secret = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, clientID, clientSecret, accountID)
+	return err
+}
+
+// SaveOAuthToken saves or updates OAuth tokens for an account
+func (db *DB) SaveOAuthToken(accountID int64, accessToken, refreshToken, tokenType string, expiry time.Time) error {
+	_, err := db.Exec(`
+		UPDATE accounts
+		SET access_token = ?, refresh_token = ?, token_type = ?, token_expiry = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, accessToken, refreshToken, tokenType, expiry, accountID)
+	return err
+}
+
+// HasValidToken checks if an account has a non-expired access token
+func (db *DB) HasValidToken(accountID int64) (bool, error) {
+	var tokenExpiry sql.NullTime
+	err := db.QueryRow(`
+		SELECT token_expiry
+		FROM accounts
+		WHERE id = ? AND access_token IS NOT NULL AND access_token != ''
+	`, accountID).Scan(&tokenExpiry)
+
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	if !tokenExpiry.Valid {
+		return false, nil
+	}
+
+	// Token is valid if it expires in the future (with 5 min buffer)
+	return tokenExpiry.Time.After(time.Now().Add(5 * time.Minute)), nil
 }
 
 // GetAccounts returns all account profiles

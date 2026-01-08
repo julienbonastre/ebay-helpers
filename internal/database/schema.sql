@@ -4,9 +4,16 @@ CREATE TABLE IF NOT EXISTS accounts (
     name TEXT NOT NULL UNIQUE,              -- e.g., "La Troverie Prod", "La Troverie Sandbox"
     environment TEXT NOT NULL,              -- "production" or "sandbox"
     marketplace_id TEXT NOT NULL,           -- e.g., "EBAY_AU"
-    client_id TEXT,                         -- OAuth credentials (optional, can use env vars)
-    client_secret TEXT,
-    redirect_uri TEXT,
+    client_id TEXT,                         -- eBay App Client ID (required for OAuth)
+    client_secret TEXT,                     -- eBay App Client Secret (required for OAuth)
+    redirect_uri TEXT,                      -- OAuth redirect URI (auto-generated if not set)
+
+    -- OAuth token storage (populated after user authorizes)
+    access_token TEXT,                      -- Current access token
+    refresh_token TEXT,                     -- Refresh token for renewing access
+    token_type TEXT,                        -- Usually "Bearer"
+    token_expiry DATETIME,                  -- When access token expires
+
     is_active BOOLEAN DEFAULT 0,            -- Currently selected account
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
