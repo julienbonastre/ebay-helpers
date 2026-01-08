@@ -9,20 +9,28 @@ import (
 	"sync"
 
 	"github.com/julienbonastre/ebay-helpers/internal/calculator"
+	"github.com/julienbonastre/ebay-helpers/internal/database"
 	"github.com/julienbonastre/ebay-helpers/internal/ebay"
+	"github.com/julienbonastre/ebay-helpers/internal/sync"
 )
 
 // Handler holds dependencies for HTTP handlers
 type Handler struct {
-	ebayClient *ebay.Client
-	mu         sync.RWMutex
-	oauthState string
+	db             *database.DB
+	ebayClient     *ebay.Client
+	currentAccount *database.Account // Current instance's account (can be nil)
+	syncService    *sync.Service
+	mu             sync.RWMutex
+	oauthState     string
 }
 
 // NewHandler creates a new handler
-func NewHandler(client *ebay.Client) *Handler {
+func NewHandler(db *database.DB, client *ebay.Client, currentAccount *database.Account) *Handler {
 	return &Handler{
-		ebayClient: client,
+		db:             db,
+		ebayClient:     client,
+		currentAccount: currentAccount,
+		syncService:    sync.NewService(db),
 	}
 }
 
@@ -46,10 +54,42 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 		"status":        "ok",
 		"authenticated": h.ebayClient.IsAuthenticated(),
 		"configured":    h.ebayClient.IsConfigured(),
+		"hasAccount":    h.currentAccount != nil,
 	})
 }
 
-// GetAuthURL returns the eBay OAuth URL
+// GetCurrentAccount returns the current instance's account info
+func (h *Handler) GetCurrentAccount(w http.ResponseWriter, r *http.Request) {
+	if h.currentAccount == nil {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"configured": false,
+			"message":    "No account specified. Use -store flag when starting server.",
+		})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"configured": true,
+		"account":    h.currentAccount,
+	})
+}
+
+// GetAccounts returns all accounts that have data in the database
+func (h *Handler) GetAccounts(w http.ResponseWriter, r *http.Request) {
+	accounts, err := h.db.GetAccounts()
+	if err != nil {
+		log.Printf("GetAccounts error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"accounts": accounts,
+		"total":    len(accounts),
+	})
+}
+
+// GetAuthURL returns the OAuth authorization URL
 func (h *Handler) GetAuthURL(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.oauthState = generateState()
@@ -267,7 +307,7 @@ func (h *Handler) GetTariffCountries(w http.ResponseWriter, r *http.Request) {
 
 // UpdateShippingRequest is the request for updating shipping
 type UpdateShippingRequest struct {
-	OfferID   string                    `json:"offerId"`
+	OfferID   string                      `json:"offerId"`
 	Overrides []ebay.ShippingCostOverride `json:"overrides"`
 }
 
@@ -296,6 +336,135 @@ func (h *Handler) UpdateOfferShipping(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// SyncExport exports current eBay account data to database
+func (h *Handler) SyncExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+
+	if !h.ebayClient.IsAuthenticated() {
+		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
+		return
+	}
+
+	if h.currentAccount == nil {
+		errorResponse(w, http.StatusBadRequest, "No account configured. Restart with -store flag.")
+		return
+	}
+
+	marketplaceID := r.URL.Query().Get("marketplace_id")
+	if marketplaceID == "" {
+		marketplaceID = h.currentAccount.MarketplaceID
+	}
+
+	log.Printf("Starting export for account: %s", h.currentAccount.DisplayName)
+
+	err := h.syncService.ExportFromEbay(r.Context(), h.ebayClient, h.currentAccount.ID, marketplaceID)
+	if err != nil {
+		log.Printf("Export failed: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Update last export time
+	if err := h.db.UpdateLastExport(h.currentAccount.ID); err != nil {
+		log.Printf("Failed to update last export time: %v", err)
+	}
+
+	log.Printf("Export completed successfully")
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "Exported data from " + h.currentAccount.DisplayName,
+	})
+}
+
+// SyncImportRequest is the request body for import
+type SyncImportRequest struct {
+	SourceAccountKey string `json:"sourceAccountKey"` // Which account's data to import from
+}
+
+// SyncImport imports data from database to current eBay account
+func (h *Handler) SyncImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+
+	if !h.ebayClient.IsAuthenticated() {
+		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
+		return
+	}
+
+	if h.currentAccount == nil {
+		errorResponse(w, http.StatusBadRequest, "No account configured. Restart with -store flag.")
+		return
+	}
+
+	var req SyncImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Get source account
+	sourceAccount, err := h.db.GetAccountByKey(req.SourceAccountKey)
+	if err != nil {
+		log.Printf("Failed to get source account: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if sourceAccount == nil {
+		errorResponse(w, http.StatusNotFound, "Source account not found: "+req.SourceAccountKey)
+		return
+	}
+
+	log.Printf("Starting import from %s to %s", sourceAccount.DisplayName, h.currentAccount.DisplayName)
+
+	err = h.syncService.ImportToEbay(r.Context(), h.ebayClient, sourceAccount.ID, h.currentAccount.ID)
+	if err != nil {
+		log.Printf("Import failed: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	log.Printf("Import completed successfully")
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "Imported data from " + sourceAccount.DisplayName + " to " + h.currentAccount.DisplayName,
+	})
+}
+
+// GetSyncHistory returns sync history
+func (h *Handler) GetSyncHistory(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	var history []database.SyncHistory
+	var err error
+
+	if h.currentAccount != nil {
+		history, err = h.db.GetSyncHistory(h.currentAccount.ID, limit)
+	} else {
+		// If no current account, return empty
+		history = []database.SyncHistory{}
+	}
+
+	if err != nil {
+		log.Printf("GetSyncHistory error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"history": history,
+		"total":   len(history),
+	})
 }
 
 // Simple state generator (in production, use crypto/rand)

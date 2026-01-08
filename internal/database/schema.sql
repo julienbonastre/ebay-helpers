@@ -1,20 +1,12 @@
--- Account profiles for multi-account management
+-- Account tracking - identifies which eBay account data came from
+-- Auto-created when exporting, used to identify import source
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,              -- e.g., "La Troverie Prod", "La Troverie Sandbox"
+    account_key TEXT NOT NULL UNIQUE,       -- e.g., "la_troverie_production_EBAY_AU"
+    display_name TEXT,                      -- e.g., "La Troverie Production"
     environment TEXT NOT NULL,              -- "production" or "sandbox"
     marketplace_id TEXT NOT NULL,           -- e.g., "EBAY_AU"
-    client_id TEXT,                         -- eBay App Client ID (required for OAuth)
-    client_secret TEXT,                     -- eBay App Client Secret (required for OAuth)
-    redirect_uri TEXT,                      -- OAuth redirect URI (auto-generated if not set)
-
-    -- OAuth token storage (populated after user authorizes)
-    access_token TEXT,                      -- Current access token
-    refresh_token TEXT,                     -- Refresh token for renewing access
-    token_type TEXT,                        -- Usually "Bearer"
-    token_expiry DATETIME,                  -- When access token expires
-
-    is_active BOOLEAN DEFAULT 0,            -- Currently selected account
+    last_export_at DATETIME,                -- When last export happened
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
