@@ -17,24 +17,14 @@ type DB struct {
 	*sql.DB
 }
 
-// Account represents an eBay account profile
+// Account represents an eBay account identifier for data tracking
 type Account struct {
 	ID            int64      `json:"id"`
-	Name          string     `json:"name"`
-	Environment   string     `json:"environment"` // "production" or "sandbox"
-	MarketplaceID string     `json:"marketplaceId"`
-	ClientID      string     `json:"clientId,omitempty"`
-	ClientSecret  string     `json:"clientSecret,omitempty"`
-	RedirectURI   string     `json:"redirectUri,omitempty"`
-
-	// OAuth tokens (omitted from JSON for security)
-	AccessToken   string     `json:"-"`
-	RefreshToken  string     `json:"-"`
-	TokenType     string     `json:"-"`
-	TokenExpiry   *time.Time `json:"-"`
-
-	IsActive      bool       `json:"isActive"`
-	IsConnected   bool       `json:"isConnected"` // Has valid tokens
+	AccountKey    string     `json:"accountKey"`    // Unique key: "storename_env_marketplace"
+	DisplayName   string     `json:"displayName"`   // Human readable: "La Troverie Production"
+	Environment   string     `json:"environment"`   // "production" or "sandbox"
+	MarketplaceID string     `json:"marketplaceId"` // "EBAY_AU"
+	LastExportAt  *time.Time `json:"lastExportAt,omitempty"`
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 }
@@ -71,74 +61,67 @@ func Open(dbPath string) (*DB, error) {
 	return &DB{db}, nil
 }
 
-// CreateAccount creates a new account profile
-func (db *DB) CreateAccount(acc *Account) error {
+// GetOrCreateAccount gets an account by key or creates it if it doesn't exist
+func (db *DB) GetOrCreateAccount(accountKey, displayName, environment, marketplaceID string) (*Account, error) {
+	// Try to get existing
+	var acc Account
+	err := db.QueryRow(`
+		SELECT id, account_key, display_name, environment, marketplace_id, last_export_at, created_at, updated_at
+		FROM accounts
+		WHERE account_key = ?
+	`, accountKey).Scan(&acc.ID, &acc.AccountKey, &acc.DisplayName, &acc.Environment,
+		&acc.MarketplaceID, &acc.LastExportAt, &acc.CreatedAt, &acc.UpdatedAt)
+
+	if err == nil {
+		return &acc, nil
+	}
+
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// Create new
 	result, err := db.Exec(`
-		INSERT INTO accounts (name, environment, marketplace_id, client_id, client_secret, redirect_uri, is_active)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, acc.Name, acc.Environment, acc.MarketplaceID, acc.ClientID, acc.ClientSecret, acc.RedirectURI, acc.IsActive)
+		INSERT INTO accounts (account_key, display_name, environment, marketplace_id)
+		VALUES (?, ?, ?, ?)
+	`, accountKey, displayName, environment, marketplaceID)
 	if err != nil {
-		return fmt.Errorf("failed to create account: %w", err)
+		return nil, fmt.Errorf("failed to create account: %w", err)
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
-		return err
+		return nil, err
 	}
+
 	acc.ID = id
-	return nil
+	acc.AccountKey = accountKey
+	acc.DisplayName = displayName
+	acc.Environment = environment
+	acc.MarketplaceID = marketplaceID
+	acc.CreatedAt = time.Now()
+	acc.UpdatedAt = time.Now()
+
+	return &acc, nil
 }
 
-// UpdateAccountCredentials updates just the OAuth credentials for an account
-func (db *DB) UpdateAccountCredentials(accountID int64, clientID, clientSecret string) error {
+// UpdateLastExport updates the last export timestamp for an account
+func (db *DB) UpdateLastExport(accountID int64) error {
+	now := time.Now()
 	_, err := db.Exec(`
 		UPDATE accounts
-		SET client_id = ?, client_secret = ?, updated_at = CURRENT_TIMESTAMP
+		SET last_export_at = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, clientID, clientSecret, accountID)
+	`, now, accountID)
 	return err
 }
 
-// SaveOAuthToken saves or updates OAuth tokens for an account
-func (db *DB) SaveOAuthToken(accountID int64, accessToken, refreshToken, tokenType string, expiry time.Time) error {
-	_, err := db.Exec(`
-		UPDATE accounts
-		SET access_token = ?, refresh_token = ?, token_type = ?, token_expiry = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, accessToken, refreshToken, tokenType, expiry, accountID)
-	return err
-}
-
-// HasValidToken checks if an account has a non-expired access token
-func (db *DB) HasValidToken(accountID int64) (bool, error) {
-	var tokenExpiry sql.NullTime
-	err := db.QueryRow(`
-		SELECT token_expiry
-		FROM accounts
-		WHERE id = ? AND access_token IS NOT NULL AND access_token != ''
-	`, accountID).Scan(&tokenExpiry)
-
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-
-	if !tokenExpiry.Valid {
-		return false, nil
-	}
-
-	// Token is valid if it expires in the future (with 5 min buffer)
-	return tokenExpiry.Time.After(time.Now().Add(5 * time.Minute)), nil
-}
-
-// GetAccounts returns all account profiles
+// GetAccounts returns all tracked accounts (that have exported data)
 func (db *DB) GetAccounts() ([]Account, error) {
 	rows, err := db.Query(`
-		SELECT id, name, environment, marketplace_id, client_id, client_secret, redirect_uri, is_active, created_at, updated_at
+		SELECT id, account_key, display_name, environment, marketplace_id, last_export_at, created_at, updated_at
 		FROM accounts
-		ORDER BY created_at DESC
+		ORDER BY last_export_at DESC, created_at DESC
 	`)
 	if err != nil {
 		return nil, err
@@ -148,9 +131,8 @@ func (db *DB) GetAccounts() ([]Account, error) {
 	var accounts []Account
 	for rows.Next() {
 		var acc Account
-		err := rows.Scan(&acc.ID, &acc.Name, &acc.Environment, &acc.MarketplaceID,
-			&acc.ClientID, &acc.ClientSecret, &acc.RedirectURI, &acc.IsActive,
-			&acc.CreatedAt, &acc.UpdatedAt)
+		err := rows.Scan(&acc.ID, &acc.AccountKey, &acc.DisplayName, &acc.Environment,
+			&acc.MarketplaceID, &acc.LastExportAt, &acc.CreatedAt, &acc.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -159,17 +141,15 @@ func (db *DB) GetAccounts() ([]Account, error) {
 	return accounts, rows.Err()
 }
 
-// GetActiveAccount returns the currently active account
-func (db *DB) GetActiveAccount() (*Account, error) {
+// GetAccountByKey retrieves an account by its unique key
+func (db *DB) GetAccountByKey(accountKey string) (*Account, error) {
 	var acc Account
 	err := db.QueryRow(`
-		SELECT id, name, environment, marketplace_id, client_id, client_secret, redirect_uri, is_active, created_at, updated_at
+		SELECT id, account_key, display_name, environment, marketplace_id, last_export_at, created_at, updated_at
 		FROM accounts
-		WHERE is_active = 1
-		LIMIT 1
-	`).Scan(&acc.ID, &acc.Name, &acc.Environment, &acc.MarketplaceID,
-		&acc.ClientID, &acc.ClientSecret, &acc.RedirectURI, &acc.IsActive,
-		&acc.CreatedAt, &acc.UpdatedAt)
+		WHERE account_key = ?
+	`, accountKey).Scan(&acc.ID, &acc.AccountKey, &acc.DisplayName, &acc.Environment,
+		&acc.MarketplaceID, &acc.LastExportAt, &acc.CreatedAt, &acc.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -177,27 +157,6 @@ func (db *DB) GetActiveAccount() (*Account, error) {
 		return nil, err
 	}
 	return &acc, nil
-}
-
-// SetActiveAccount sets an account as active (deactivates others)
-func (db *DB) SetActiveAccount(accountID int64) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Deactivate all accounts
-	if _, err := tx.Exec("UPDATE accounts SET is_active = 0"); err != nil {
-		return err
-	}
-
-	// Activate the specified account
-	if _, err := tx.Exec("UPDATE accounts SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", accountID); err != nil {
-		return err
-	}
-
-	return tx.Commit()
 }
 
 // CreateSyncHistory creates a new sync history record
