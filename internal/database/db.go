@@ -318,6 +318,68 @@ type TariffRate struct {
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
+// Setting represents an application setting (key-value pair)
+type Setting struct {
+	ID          int64     `json:"id"`
+	Key         string    `json:"key"`
+	Value       string    `json:"value"`
+	Description string    `json:"description,omitempty"`
+	DataType    string    `json:"dataType"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// GetAllSettings returns all application settings
+func (db *DB) GetAllSettings() ([]Setting, error) {
+	rows, err := db.Query(`
+		SELECT id, key, value, COALESCE(description, ''), data_type, created_at, updated_at
+		FROM settings
+		ORDER BY key
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var settings []Setting
+	for rows.Next() {
+		var s Setting
+		err := rows.Scan(&s.ID, &s.Key, &s.Value, &s.Description, &s.DataType, &s.CreatedAt, &s.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		settings = append(settings, s)
+	}
+	return settings, rows.Err()
+}
+
+// GetSetting returns a single setting by key
+func (db *DB) GetSetting(key string) (*Setting, error) {
+	var s Setting
+	err := db.QueryRow(`
+		SELECT id, key, value, COALESCE(description, ''), data_type, created_at, updated_at
+		FROM settings
+		WHERE key = ?
+	`, key).Scan(&s.ID, &s.Key, &s.Value, &s.Description, &s.DataType, &s.CreatedAt, &s.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil // Setting not found
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// UpdateSetting updates the value of an existing setting
+func (db *DB) UpdateSetting(key, value string) error {
+	_, err := db.Exec(`
+		UPDATE settings
+		SET value = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE key = ?
+	`, value, key)
+	return err
+}
+
 // GetAllBrandCOOMappings returns all brand-COO mappings
 func (db *DB) GetAllBrandCOOMappings() ([]BrandCOOMapping, error) {
 	rows, err := db.Query(`

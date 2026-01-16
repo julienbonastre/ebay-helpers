@@ -157,7 +157,19 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at DATETIME NOT NULL            -- When session expires (30 days default)
 );
 
+-- Global application settings - key-value store for user preferences
+CREATE TABLE IF NOT EXISTS settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,
+    value TEXT NOT NULL,
+    description TEXT,
+    data_type TEXT DEFAULT 'string',        -- 'string', 'int', 'float', 'bool', 'json'
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key);
 CREATE INDEX IF NOT EXISTS idx_inventory_sku ON inventory_items(account_id, sku);
 CREATE INDEX IF NOT EXISTS idx_offers_sku ON offers(account_id, sku);
 CREATE INDEX IF NOT EXISTS idx_offers_status ON offers(account_id, status);
@@ -165,3 +177,10 @@ CREATE INDEX IF NOT EXISTS idx_sync_history_account ON sync_history(account_id, 
 CREATE INDEX IF NOT EXISTS idx_brand_coo_brand ON brand_coo_mappings(brand_name);
 CREATE INDEX IF NOT EXISTS idx_tariff_country ON tariff_rates(country_name);
 CREATE INDEX IF NOT EXISTS idx_enriched_items_at ON enriched_items(enriched_at);
+
+-- Seed initial settings
+INSERT OR IGNORE INTO settings (key, value, description, data_type) VALUES
+    ('auspost_savings_tier', '0', 'Current AusPost Savings Tier (0-5)', 'int'),
+    ('auspost_api_enabled', 'false', 'Enable AusPost API integration (future)', 'bool'),
+    ('auspost_api_key', '', 'AusPost API key (future)', 'string'),
+    ('auspost_api_secret', '', 'AusPost API secret (future)', 'string');

@@ -232,6 +232,8 @@ function showTab(tabId) {
         loadListings();
     } else if (tabId === 'sync') {
         loadSyncTab();
+    } else if (tabId === 'settings') {
+        loadSettingsTab();
     }
 }
 
@@ -1578,5 +1580,53 @@ function handleCarouselKeys(e) {
         nextImage();
     } else if (e.key === 'ArrowLeft') {
         prevImage();
+    }
+}
+
+// Settings functions
+async function loadSettingsTab() {
+    try {
+        const response = await secureFetch('/api/settings');
+        const data = await response.json();
+
+        if (data.settings) {
+            // Populate settings form
+            data.settings.forEach(setting => {
+                if (setting.key === 'auspost_savings_tier') {
+                    document.getElementById('settingsAuspostTier').value = setting.value;
+                } else if (setting.key === 'auspost_api_enabled') {
+                    document.getElementById('settingsAuspostApiEnabled').checked = setting.value === 'true';
+                } else if (setting.key === 'auspost_api_key') {
+                    document.getElementById('settingsAuspostApiKey').value = setting.value;
+                } else if (setting.key === 'auspost_api_secret') {
+                    document.getElementById('settingsAuspostApiSecret').value = setting.value;
+                }
+            });
+        }
+    } catch (err) {
+        console.error('Failed to load settings:', err);
+    }
+}
+
+async function saveSettings() {
+    try {
+        const tier = document.getElementById('settingsAuspostTier').value;
+
+        // Update auspost_savings_tier setting
+        const response = await secureFetch('/api/settings/auspost_savings_tier', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: tier })
+        });
+
+        if (response.ok) {
+            alert('Settings saved successfully!');
+        } else {
+            const error = await response.json();
+            alert('Failed to save settings: ' + (error.error || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Failed to save settings:', err);
+        alert('Failed to save settings: ' + err.message);
     }
 }
