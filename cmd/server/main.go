@@ -147,6 +147,12 @@ func main() {
 	mux.HandleFunc("/api/weight-bands", h.GetWeightBands)
 	mux.HandleFunc("/api/tariff-countries", h.GetTariffCountries)
 
+	// Reference Data CRUD
+	mux.HandleFunc("/api/reference/tariffs/", h.ReferenceTariffByID) // PUT/DELETE /api/reference/tariffs/:id
+	mux.HandleFunc("/api/reference/tariffs", h.ReferenceTariffs)     // GET/POST /api/reference/tariffs
+	mux.HandleFunc("/api/reference/brands/", h.ReferenceBrandByID)   // PUT/DELETE /api/reference/brands/:id
+	mux.HandleFunc("/api/reference/brands", h.ReferenceBrands)       // GET/POST /api/reference/brands
+
 	// Serve embedded static files
 	webContent, err := fs.Sub(webFS, "web")
 	if err != nil {

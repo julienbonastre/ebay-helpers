@@ -952,6 +952,242 @@ func (h *Handler) GetTariffCountries(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Reference Data CRUD Endpoints
+
+// ReferenceTariffs handles CRUD operations for tariff rates
+func (h *Handler) ReferenceTariffs(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.listTariffs(w, r)
+	case http.MethodPost:
+		h.createTariff(w, r)
+	default:
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+// ReferenceTariffByID handles CRUD operations for a specific tariff rate
+func (h *Handler) ReferenceTariffByID(w http.ResponseWriter, r *http.Request) {
+	// Extract ID from path: /api/reference/tariffs/:id
+	idStr := r.URL.Path[len("/api/reference/tariffs/"):]
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid tariff ID")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPut:
+		h.updateTariff(w, r, id)
+	case http.MethodDelete:
+		h.deleteTariff(w, r, id)
+	default:
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+func (h *Handler) listTariffs(w http.ResponseWriter, r *http.Request) {
+	tariffs, err := h.db.GetAllTariffRates()
+	if err != nil {
+		log.Printf("Error fetching tariffs: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to fetch tariffs")
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"tariffs": tariffs,
+		"total":   len(tariffs),
+	})
+}
+
+func (h *Handler) createTariff(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CountryName string  `json:"countryName"`
+		TariffRate  float64 `json:"tariffRate"`
+		Notes       string  `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.CountryName == "" {
+		errorResponse(w, http.StatusBadRequest, "Country name required")
+		return
+	}
+	if req.TariffRate < 0 || req.TariffRate > 1 {
+		errorResponse(w, http.StatusBadRequest, "Tariff rate must be between 0 and 1")
+		return
+	}
+
+	id, err := h.db.CreateTariffRate(req.CountryName, req.TariffRate, req.Notes)
+	if err != nil {
+		log.Printf("Error creating tariff: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to create tariff")
+		return
+	}
+
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"id":      id,
+		"message": "Tariff created successfully",
+	})
+}
+
+func (h *Handler) updateTariff(w http.ResponseWriter, r *http.Request, id int64) {
+	var req struct {
+		CountryName string  `json:"countryName"`
+		TariffRate  float64 `json:"tariffRate"`
+		Notes       string  `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.CountryName == "" {
+		errorResponse(w, http.StatusBadRequest, "Country name required")
+		return
+	}
+	if req.TariffRate < 0 || req.TariffRate > 1 {
+		errorResponse(w, http.StatusBadRequest, "Tariff rate must be between 0 and 1")
+		return
+	}
+
+	if err := h.db.UpdateTariffRate(id, req.CountryName, req.TariffRate, req.Notes); err != nil {
+		log.Printf("Error updating tariff: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to update tariff")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "Tariff updated successfully"})
+}
+
+func (h *Handler) deleteTariff(w http.ResponseWriter, r *http.Request, id int64) {
+	if err := h.db.DeleteTariffRate(id); err != nil {
+		log.Printf("Error deleting tariff: %v", err)
+		errorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "Tariff deleted successfully"})
+}
+
+// ReferenceBrands handles CRUD operations for brand COO mappings
+func (h *Handler) ReferenceBrands(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.listBrands(w, r)
+	case http.MethodPost:
+		h.createBrand(w, r)
+	default:
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+// ReferenceBrandByID handles CRUD operations for a specific brand mapping
+func (h *Handler) ReferenceBrandByID(w http.ResponseWriter, r *http.Request) {
+	// Extract ID from path: /api/reference/brands/:id
+	idStr := r.URL.Path[len("/api/reference/brands/"):]
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid brand ID")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPut:
+		h.updateBrand(w, r, id)
+	case http.MethodDelete:
+		h.deleteBrand(w, r, id)
+	default:
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+func (h *Handler) listBrands(w http.ResponseWriter, r *http.Request) {
+	brands, err := h.db.GetAllBrandCOOMappings()
+	if err != nil {
+		log.Printf("Error fetching brands: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to fetch brands")
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"brands": brands,
+		"total":  len(brands),
+	})
+}
+
+func (h *Handler) createBrand(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BrandName  string `json:"brandName"`
+		PrimaryCOO string `json:"primaryCoo"`
+		Notes      string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.BrandName == "" {
+		errorResponse(w, http.StatusBadRequest, "Brand name required")
+		return
+	}
+	if req.PrimaryCOO == "" {
+		errorResponse(w, http.StatusBadRequest, "Primary COO required")
+		return
+	}
+
+	id, err := h.db.CreateBrandCOOMapping(req.BrandName, req.PrimaryCOO, req.Notes)
+	if err != nil {
+		log.Printf("Error creating brand: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to create brand")
+		return
+	}
+
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"id":      id,
+		"message": "Brand created successfully",
+	})
+}
+
+func (h *Handler) updateBrand(w http.ResponseWriter, r *http.Request, id int64) {
+	var req struct {
+		BrandName  string `json:"brandName"`
+		PrimaryCOO string `json:"primaryCoo"`
+		Notes      string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.BrandName == "" {
+		errorResponse(w, http.StatusBadRequest, "Brand name required")
+		return
+	}
+	if req.PrimaryCOO == "" {
+		errorResponse(w, http.StatusBadRequest, "Primary COO required")
+		return
+	}
+
+	if err := h.db.UpdateBrandCOOMapping(id, req.BrandName, req.PrimaryCOO, req.Notes); err != nil {
+		log.Printf("Error updating brand: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to update brand")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "Brand updated successfully"})
+}
+
+func (h *Handler) deleteBrand(w http.ResponseWriter, r *http.Request, id int64) {
+	if err := h.db.DeleteBrandCOOMapping(id); err != nil {
+		log.Printf("Error deleting brand: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to delete brand")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "Brand deleted successfully"})
+}
+
 // UpdateShippingRequest is the request for updating shipping
 type UpdateShippingRequest struct {
 	OfferID   string                      `json:"offerId"`

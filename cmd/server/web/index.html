@@ -677,25 +677,31 @@
         <!-- Reference Tab -->
         <div class="tab-content" id="reference">
             <div class="card">
-                <div class="card-header"><h2>Tariff Rates by Country</h2></div>
+                <div class="card-header">
+                    <h2 style="display: inline-block;">Tariff Rates by Country</h2>
+                    <button class="btn btn-primary" onclick="openAddTariffModal()" style="float: right;">+ Add Country</button>
+                </div>
                 <div class="card-body">
                     <table id="tariffTable">
-                        <thead><tr><th>Country</th><th>Tariff Rate</th></tr></thead>
+                        <thead><tr><th>Country</th><th>Rate (%)</th><th>Notes</th><th>Actions</th></tr></thead>
                         <tbody></tbody>
                     </table>
                 </div>
             </div>
             <div class="card">
-                <div class="card-header"><h2>Brand → Country of Origin</h2></div>
+                <div class="card-header">
+                    <h2 style="display: inline-block;">Brand → Country of Origin</h2>
+                    <button class="btn btn-primary" onclick="openAddBrandModal()" style="float: right;">+ Add Brand</button>
+                </div>
                 <div class="card-body">
                     <table id="brandTable">
-                        <thead><tr><th>Brand</th><th>Primary COO</th><th>Tariff Rate</th></tr></thead>
+                        <thead><tr><th>Brand</th><th>Primary COO</th><th>Tariff Rate</th><th>Notes</th><th>Actions</th></tr></thead>
                         <tbody></tbody>
                     </table>
                 </div>
             </div>
             <div class="card">
-                <div class="card-header"><h2>Weight Bands (Zone 3 - USA/Canada)</h2></div>
+                <div class="card-header"><h2>Weight Bands (Zone 3 - USA/Canada) <span style="color: var(--text-muted); font-size: 0.85em;">(Read Only)</span></h2></div>
                 <div class="card-body">
                     <table id="weightTable">
                         <thead><tr><th>Band</th><th>Weight Range</th><th>Base Price (AUD)</th></tr></thead>
@@ -716,6 +722,60 @@
             <div class="carousel-counter">
                 <span id="imageIndex">1</span> / <span id="imageTotal">1</span>
             </div>
+        </div>
+    </div>
+
+    <!-- Tariff Edit Modal -->
+    <div id="tariffModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 500px; padding: 2rem;">
+            <h2 id="tariffModalTitle">Add Tariff Country</h2>
+            <form id="tariffForm" onsubmit="saveTariff(event)">
+                <input type="hidden" id="tariffId" value="">
+                <div class="form-group">
+                    <label for="tariffCountry">Country Name</label>
+                    <input type="text" id="tariffCountry" required>
+                </div>
+                <div class="form-group">
+                    <label for="tariffRate">Tariff Rate (0-100%)</label>
+                    <input type="number" id="tariffRate" min="0" max="100" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label for="tariffNotes">Notes (optional)</label>
+                    <textarea id="tariffNotes" rows="3"></textarea>
+                </div>
+                <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn" onclick="closeTariffModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Brand Edit Modal -->
+    <div id="brandModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 500px; padding: 2rem;">
+            <h2 id="brandModalTitle">Add Brand</h2>
+            <form id="brandForm" onsubmit="saveBrand(event)">
+                <input type="hidden" id="brandId" value="">
+                <div class="form-group">
+                    <label for="brandName">Brand Name</label>
+                    <input type="text" id="brandName" required>
+                </div>
+                <div class="form-group">
+                    <label for="brandCOO">Primary COO</label>
+                    <select id="brandCOO" required>
+                        <option value="">Select Country</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="brandNotes">Notes (optional)</label>
+                    <textarea id="brandNotes" rows="3"></textarea>
+                </div>
+                <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn" onclick="closeBrandModal()">Cancel</button>
+                </div>
+            </form>
         </div>
     </div>
 
