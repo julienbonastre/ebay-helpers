@@ -8,6 +8,7 @@ ebay-postage-helper.exe
 
 # Scripts with credentials
 restart-prod.sh
+debug-policies.sh
 
 # IDE
 .idea/
@@ -27,6 +28,12 @@ coverage.out
 # Temp
 tmp/
 *.log
+
+# Database files (may contain sensitive data)
+*.db
+*.db.backup
+*.sqlite
+*.sqlite3
 
 # Build artifacts
 /build/

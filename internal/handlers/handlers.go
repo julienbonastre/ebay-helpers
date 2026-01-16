@@ -100,59 +100,35 @@ const (
 func (h *Handler) getEbayClient(r *http.Request) (*ebay.Client, error) {
 	session, err := h.sessionStore.Get(r, sessionName)
 	if err != nil {
-		log.Printf("[AUTH-DEBUG] Failed to get session: %v", err)
 		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
 
-	log.Printf("[AUTH-DEBUG] Session ID: %s", session.ID)
-	log.Printf("[AUTH-DEBUG] Session.Values keys: %v", getSessionKeys(session.Values))
 
 	client := ebay.NewClient(h.ebayConfig)
 
 	// Load token from session if it exists
 	// Note: token may be []byte (in-memory) or string (from database JSON)
 	if tokenData, ok := session.Values[tokenKey].([]byte); ok {
-		log.Printf("[AUTH-DEBUG] Found token as []byte, length: %d", len(tokenData))
 		var token oauth2.Token
 		if err := json.Unmarshal(tokenData, &token); err == nil {
-			log.Printf("[AUTH-DEBUG] Successfully unmarshalled token from []byte, expiry: %v", token.Expiry)
 			client.SetToken(&token)
 		} else {
-			log.Printf("[AUTH-DEBUG] Failed to unmarshal token from []byte: %v", err)
 		}
 	} else if tokenStr, ok := session.Values[tokenKey].(string); ok {
-		log.Printf("[AUTH-DEBUG] Found token as string, length: %d", len(tokenStr))
 		// When loaded from database, []byte becomes base64-encoded string after JSON round-trip
 		// Need to base64-decode first, then unmarshal
 		tokenBytes, err := base64.StdEncoding.DecodeString(tokenStr)
 		if err != nil {
-			log.Printf("[AUTH-DEBUG] Failed to base64-decode token: %v", err)
 		} else {
 			var token oauth2.Token
 			if err := json.Unmarshal(tokenBytes, &token); err == nil {
-				log.Printf("[AUTH-DEBUG] Successfully unmarshalled token from base64 string, expiry: %v", token.Expiry)
 				client.SetToken(&token)
 			} else {
-				log.Printf("[AUTH-DEBUG] Failed to unmarshal token from decoded bytes: %v", err)
 			}
-		}
-	} else {
-		log.Printf("[AUTH-DEBUG] No token found in session! Token key '%s' not present or wrong type", tokenKey)
-		if val, exists := session.Values[tokenKey]; exists {
-			log.Printf("[AUTH-DEBUG] Token key exists but has type: %T", val)
 		}
 	}
 
 	return client, nil
-}
-
-// Helper to get session keys for debugging
-func getSessionKeys(values map[interface{}]interface{}) []string {
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, fmt.Sprintf("%v", k))
-	}
-	return keys
 }
 
 // saveTokenToSession stores the OAuth token in the session
@@ -280,13 +256,11 @@ func (h *Handler) GetCurrentAccount(w http.ResponseWriter, r *http.Request) {
 	account := h.currentAccount
 	h.mu.RUnlock()
 
-	log.Printf("[DEBUG] GetCurrentAccount called, currentAccount: %+v", account)
 
 	// If no account in memory but user has valid session, hydrate from eBay
 	if account == nil {
 		client, err := h.getEbayClient(r)
 		if err == nil && client.IsAuthenticated() {
-			log.Printf("[DEBUG] Session valid but no account - hydrating from eBay API")
 
 			// Fetch user info from eBay
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -302,18 +276,14 @@ func (h *Handler) GetCurrentAccount(w http.ResponseWriter, r *http.Request) {
 					h.currentAccount = dbAccount
 					account = dbAccount
 					h.mu.Unlock()
-					log.Printf("[DEBUG] Account hydrated: %s (env: %s)", account.DisplayName, account.Environment)
 				} else {
-					log.Printf("[DEBUG] Failed to get/create account: %v", err)
 				}
 			} else {
-				log.Printf("[DEBUG] Failed to fetch user info: %v", err)
 			}
 		}
 	}
 
 	if account == nil {
-		log.Printf("[DEBUG] Returning configured=false (no account)")
 		jsonResponse(w, http.StatusOK, map[string]interface{}{
 			"configured": false,
 			"message":    "Not connected to an eBay account. Authenticate to continue.",
@@ -321,7 +291,6 @@ func (h *Handler) GetCurrentAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[DEBUG] Returning account: %s (env: %s)", account.DisplayName, account.Environment)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"configured": true,
 		"account":    account,
@@ -412,11 +381,9 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("OAuth success! Token obtained and saved to session.")
-	log.Printf("[DEBUG] Environment: %s, MarketplaceID: %s", h.environment, h.marketplaceID)
 
 	// Fetch eBay username using Commerce Identity API with retry logic
 	// No useless fallbacks - if this fails, we show a proper error to the user
-	log.Printf("[DEBUG] Fetching eBay user info...")
 	var username, userID string
 	var userErr error
 
@@ -426,7 +393,6 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 		timeout := time.Duration(5+attempt*5) * time.Second // 10s, 15s, 20s
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
-		log.Printf("[DEBUG] Attempt %d/%d to fetch user info (timeout: %v)", attempt, maxAttempts, timeout)
 		user, err := client.GetUser(ctx)
 		cancel()
 
@@ -443,7 +409,6 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 		if attempt < maxAttempts {
 			backoff := time.Duration(attempt) * time.Second
-			log.Printf("[DEBUG] Retrying in %v...", backoff)
 			time.Sleep(backoff)
 		}
 	}
@@ -458,7 +423,6 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	accountKey := fmt.Sprintf("%s_%s", userID, h.environment)
 
 	// Create or update account with real eBay username
-	log.Printf("[DEBUG] Creating/updating account with username: %s (UserID: %s)", username, userID)
 	account, err := h.db.GetOrCreateAccountFromEbay(accountKey, username, h.environment, h.marketplaceID)
 	if err != nil {
 		log.Printf("ERROR: Failed to create/update account: %v", err)
@@ -472,24 +436,19 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	log.Printf("SUCCESS: Account created/updated: %s (AccountKey: %s)", account.DisplayName, account.AccountKey)
 
 	// Redirect to the main app
-	log.Printf("[DEBUG] Redirecting to /?auth=success")
 	http.Redirect(w, r, "/?auth=success", http.StatusFound)
 }
 
 // GetAuthStatus returns current auth status
 func (h *Handler) GetAuthStatus(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[AUTH-DEBUG] === GetAuthStatus called ===")
 	client, err := h.getEbayClient(r)
 	authenticated := false
 	if err == nil {
 		authenticated = client.IsAuthenticated()
-		log.Printf("[AUTH-DEBUG] client.IsAuthenticated() returned: %v", authenticated)
 	} else {
-		log.Printf("[AUTH-DEBUG] getEbayClient failed: %v", err)
 	}
 
 	configured := h.ebayConfig.ClientID != ""
-	log.Printf("[AUTH-DEBUG] Returning authenticated=%v, configured=%v", authenticated, configured)
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"authenticated": authenticated,
