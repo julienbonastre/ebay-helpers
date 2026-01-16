@@ -147,6 +147,10 @@ func main() {
 	mux.HandleFunc("/api/weight-bands", h.GetWeightBands)
 	mux.HandleFunc("/api/tariff-countries", h.GetTariffCountries)
 
+	// Settings
+	mux.HandleFunc("/api/settings", h.GetAllSettings)
+	mux.HandleFunc("/api/settings/", h.UpdateSetting) // Handles /api/settings/:key
+
 	// Serve embedded static files
 	webContent, err := fs.Sub(webFS, "web")
 	if err != nil {
