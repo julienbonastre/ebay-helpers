@@ -102,7 +102,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check for auth success redirect
     const params = new URLSearchParams(window.location.search);
     if (params.get('auth') === 'success') {
-        console.log('[DEBUG] Auth success detected, reloading account');
         window.history.replaceState({}, '', '/');
         await checkAuthStatus();    // Refresh auth status after OAuth
         await loadCurrentAccount();  // Reload account after OAuth
@@ -226,14 +225,11 @@ function showTab(tabId) {
 
 // Auth
 async function checkAuthStatus() {
-    console.log('[DEBUG] Checking auth status...');
     try {
         const res = await secureFetch('/api/auth/status');
         const data = await res.json();
-        console.log('[DEBUG] Auth status response:', data);
         isAuthenticated = data.authenticated;
         isConfigured = data.configured;
-        console.log('[DEBUG] isAuthenticated:', isAuthenticated, 'isConfigured:', isConfigured);
         updateAuthUI();
         await loadCurrentAccount(); // Load account info after updating auth UI
     } catch (err) {
@@ -514,7 +510,6 @@ async function loadListings(forceRefresh = false) {
         allListings = firstData.offers || [];
         listingsLoadProgress = allListings.length;
 
-        console.log(`[LOAD-ALL] First batch: ${allListings.length}/${totalListingsFromAPI} listings`);
         updateLoadingProgress();
 
         // Show first page immediately while loading the rest
@@ -526,10 +521,8 @@ async function loadListings(forceRefresh = false) {
         const batchSize = 50;
         let offset = batchSize;
 
-        console.log(`[LOAD-ALL] Starting loop: offset=${offset}, totalListingsFromAPI=${totalListingsFromAPI}`);
 
         while (offset < totalListingsFromAPI) {
-            console.log(`[LOAD-ALL] Fetching offset=${offset}...`);
             const res = await secureFetch(`/api/offers?limit=${batchSize}&offset=${offset}${forceParam}`);
             const data = await res.json();
 
@@ -539,12 +532,10 @@ async function loadListings(forceRefresh = false) {
             }
 
             const newOffers = data.offers || [];
-            console.log(`[LOAD-ALL] Received ${newOffers.length} offers at offset ${offset}`);
             allListings = [...allListings, ...newOffers];
             listingsLoadProgress = allListings.length;
             offset += batchSize;
 
-            console.log(`[LOAD-ALL] Progress: ${allListings.length}/${totalListingsFromAPI} listings (next offset: ${offset})`);
             updateLoadingProgress();
 
             // Re-render to show updated count
@@ -552,7 +543,6 @@ async function loadListings(forceRefresh = false) {
             renderListings();
         }
 
-        console.log(`[LOAD-ALL] Complete: ${allListings.length} listings loaded`);
         isLoadingAllListings = false;
 
         // Hide loading indicator and re-render
@@ -667,7 +657,6 @@ function updateEnrichmentProgress() {
     const enrichedItems = enrichedDataCache.size;
     const percent = totalItems > 0 ? Math.round((enrichedItems / totalItems) * 100) : 0;
 
-    console.log(`[PROGRESS] totalItems=${totalItems}, enrichedItems=${enrichedItems}, percent=${percent}%`);
 
     // Update both top and bottom progress indicators
     const elements = [
@@ -685,7 +674,6 @@ function updateEnrichmentProgress() {
                 containerEl.style.display = 'inline-flex';
                 barEl.style.width = `${percent}%`;
                 textEl.textContent = `${percent}%`;
-                console.log(`[PROGRESS-BAR] Set ${bar} width to ${percent}%, element:`, barEl, 'computed width:', barEl.offsetWidth);
             } else if (percent >= 100) {
                 // Hide after completion (with brief delay to show 100%)
                 barEl.style.width = '100%';
@@ -1010,21 +998,16 @@ async function bulkResolve() {
 
 // Account management
 async function loadCurrentAccount(retryCount = 0) {
-    console.log('[DEBUG] Loading current account... (attempt', retryCount + 1, ')');
     try {
         const res = await secureFetch('/api/account/current');
         const data = await res.json();
-        console.log('[DEBUG] Current account response:', data);
 
         if (data.configured && data.account) {
             currentAccount = data.account;
-            console.log('[DEBUG] Account loaded:', currentAccount);
             updateAccountDisplay();
         } else {
-            console.log('[DEBUG] No account configured:', data);
             // If we just authenticated but account isn't ready yet, retry up to 3 times
             if (isAuthenticated && retryCount < 3) {
-                console.log('[DEBUG] Account not ready, retrying in 500ms...');
                 setTimeout(() => loadCurrentAccount(retryCount + 1), 500);
             }
         }
@@ -1044,7 +1027,6 @@ function updateAccountDisplay() {
         const envBadge = currentAccount.environment === 'production' ? '🔴 PROD' : '🟡 SANDBOX';
         accountEnv.textContent = `[${envBadge}]`;
         accountInfo.style.display = 'block';
-        console.log('[DEBUG] Updated account badges:', currentAccount.displayName, envBadge);
     } else {
         accountInfo.style.display = 'none';
     }
