@@ -9,6 +9,7 @@ Server runs at http://localhost:8080 with ngrok tunnel for eBay OAuth callbacks.
 ## Behaviour Preferences
 - Do not ask permission to rebuild and restart the app after updates
 - Use `restart-prod.sh` script for server restarts (handles kill, build, verify)
+- Do not ask permission for file edits - all edits to files in this repository are pre-approved
 
 ---
 
