@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>La Troverie - eBay Postage Helper</title>
+    <title>Lil' eBay Helper</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%233b82f6'/><circle cx='35' cy='40' r='5' fill='%23fff'/><circle cx='65' cy='40' r='5' fill='%23fff'/><rect x='30' y='60' width='40' height='6' rx='3' fill='%23fff'/><circle cx='20' cy='30' r='8' fill='%2322c55e'/><circle cx='80' cy='30' r='8' fill='%2322c55e'/></svg>">
     <style>
         /* Dark mode (default) */
         :root {
@@ -75,10 +76,20 @@
             cursor: pointer;
             transition: all 0.15s;
         }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            filter: grayscale(0.5);
+        }
+        .btn:disabled:hover {
+            opacity: 0.5;
+        }
         .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover { background: var(--primary-dark); }
+        .btn-primary:disabled:hover { background: var(--primary); }
         .btn-secondary { background: var(--border); color: var(--text); }
         .btn-success { background: var(--success); color: white; }
+        .btn-success:disabled:hover { background: var(--success); }
         .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
 
         .card {
@@ -150,12 +161,35 @@
         table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
         th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
         th { background: var(--bg); font-weight: 600; position: sticky; top: 0; }
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { background: var(--card); }
+        th.sortable::after { content: ' ↕'; opacity: 0.3; font-size: 0.75rem; }
+        th.sortable.sorted-asc::after { content: ' ↑'; opacity: 1; }
+        th.sortable.sorted-desc::after { content: ' ↓'; opacity: 1; }
         tr:hover { background: var(--bg); }
         .thumbnail { width: 50px; height: 50px; object-fit: cover; border-radius: 0.25rem; }
         .price { font-weight: 600; }
         .diff-ok { color: var(--success); }
         .diff-warn { color: var(--warning); }
         .diff-bad { color: var(--danger); font-weight: 600; }
+        .title-cell {
+            max-width: 300px;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+
+        /* COO validation colors */
+        .coo-match { color: var(--success); font-weight: 600; }
+        .coo-mismatch { color: var(--danger); font-weight: 600; }
+        .coo-missing { color: var(--warning); }
+        .title-link {
+            color: var(--text);
+            text-decoration: none;
+            transition: text-decoration 0.15s;
+        }
+        .title-link:hover {
+            text-decoration: underline;
+        }
 
         /* Pagination */
         .pagination {
@@ -166,6 +200,35 @@
             border-top: 1px solid var(--border);
         }
         .page-info { color: var(--text-muted); font-size: 0.875rem; }
+
+        /* Enrichment Progress Bar */
+        .enrichment-progress {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+        }
+        .progress-bar-container {
+            display: inline-block;
+            width: 100px;
+            height: 12px;
+            background: var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            display: block;
+            height: 100%;
+            background: linear-gradient(90deg, var(--success) 0%, #4ade80 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 6px;
+        }
+        .progress-text {
+            color: var(--success);
+            font-weight: 600;
+            min-width: 40px;
+        }
 
         /* Loading */
         .loading {
@@ -180,6 +243,15 @@
             border-top-color: var(--primary);
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
+        }
+        .spinner-inline {
+            display: inline-block;
+            width: 14px; height: 14px;
+            border: 2px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -227,16 +299,123 @@
             font-size: 1.2rem;
         }
         .theme-toggle:hover { background: var(--text-muted); }
+
+        /* Image carousel modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            animation: fadeIn 0.3s;
+        }
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .modal-content {
+            max-width: 90%;
+            max-height: 90%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+        .carousel-image {
+            max-width: 100%;
+            max-height: 80vh;
+            object-fit: contain;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        .carousel-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+            color: white;
+            font-size: 2rem;
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        .carousel-nav:hover {
+            background: rgba(0, 0, 0, 0.9);
+            border-color: white;
+            transform: translateY(-50%) scale(1.1);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+        }
+        .carousel-prev { left: -0.75rem; }
+        .carousel-next { right: -0.75rem; }
+        .carousel-close {
+            position: absolute;
+            top: -1rem;
+            right: -1rem;
+            color: white;
+            font-size: 1.75rem;
+            cursor: pointer;
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid white;
+            border-radius: 50%;
+            width: 2.5rem;
+            height: 2.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            transition: all 0.2s;
+            z-index: 10;
+        }
+        .carousel-close:hover {
+            background: rgba(0, 0, 0, 0.95);
+            transform: scale(1.1);
+        }
+        .carousel-counter {
+            position: absolute;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 0.5rem 1rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+        }
+        .thumbnail:hover {
+            cursor: pointer;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
     </style>
 </head>
 <body>
     <header>
         <div class="container">
-            <h1><span>La Troverie</span> - eBay Postage Helper</h1>
+            <h1><span id="pageTitle">Lil' eBay Helper</span></h1>
             <div class="auth-status">
                 <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark mode">
                     <span id="themeIcon">&#9728;</span>
                 </button>
+                <div id="accountInfo" style="margin-right: 1rem; font-size: 0.875rem; color: var(--text-muted); display: none;">
+                    <strong id="accountName"></strong> <span id="accountEnv"></span>
+                </div>
                 <div class="status-dot" id="statusDot"></div>
                 <span id="statusText">Not Connected</span>
                 <button class="btn btn-primary" id="authBtn" onclick="handleAuth()">Connect to eBay</button>
@@ -246,13 +425,14 @@
 
     <main class="container">
         <div class="tabs">
-            <div class="tab active" data-tab="calculator">Calculator</div>
-            <div class="tab" data-tab="listings">Listings</div>
+            <div class="tab active" data-tab="listings">Listings</div>
+            <div class="tab" data-tab="calculator">Calculator</div>
+            <div class="tab" data-tab="sync">Sync</div>
             <div class="tab" data-tab="reference">Reference Data</div>
         </div>
 
         <!-- Calculator Tab -->
-        <div class="tab-content active" id="calculator">
+        <div class="tab-content" id="calculator">
             <div class="card">
                 <div class="card-header">
                     <h2>Shipping Cost Calculator</h2>
@@ -312,7 +492,7 @@
         </div>
 
         <!-- Listings Tab -->
-        <div class="tab-content" id="listings">
+        <div class="tab-content active" id="listings">
             <div class="action-bar hidden" id="actionBar">
                 <span><strong id="selectedCount">0</strong> items selected</span>
                 <button class="btn btn-success" onclick="bulkResolve()">Resolve Selected</button>
@@ -321,10 +501,41 @@
             <div class="card">
                 <div class="card-header">
                     <h2>Active Listings</h2>
-                    <button class="btn btn-secondary" onclick="loadListings()">Refresh</button>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="text" id="listingsSearch" placeholder="Search title, brand, COO..." style="padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--input-bg); color: var(--text); min-width: 250px;">
+                        <button class="btn btn-secondary btn-sm" id="clearSearchBtn" onclick="clearSearch()" style="display: none;">Clear</button>
+                        <button class="btn btn-secondary" onclick="loadListings(true)">Refresh</button>
+                    </div>
                 </div>
                 <div class="card-body">
-                    <div class="loading" id="listingsLoading">
+                    <!-- Top Pagination -->
+                    <div class="pagination" id="listingsPaginationTop" style="display:none; border-bottom: 1px solid var(--border); border-top: none; padding-bottom: 1rem; margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <label style="font-size: 0.875rem; color: var(--text-muted);">Page size:</label>
+                            <select id="pageSizeSelect" onchange="changePageSize()" style="padding: 0.25rem 0.5rem; border: 1px solid var(--border); border-radius: 0.25rem; background: var(--input-bg); color: var(--text); font-size: 0.875rem;">
+                                <option value="10">10</option>
+                                <option value="25">25</option>
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                            </select>
+                            <span class="page-info" style="margin-left: 0.5rem;">
+                                Showing <span id="pageStartTop">0</span>-<span id="pageEndTop">0</span> of <span id="pageTotalTop">0</span>
+                            </span>
+                            <span id="enrichmentProgressTop" class="enrichment-progress" style="margin-left: 1rem; display: none;">
+                                <span style="color: var(--text-muted); margin-right: 0.5rem;">Enriching data:</span>
+                                <span class="progress-bar-container">
+                                    <span class="progress-bar-fill" id="enrichmentBarTop"></span>
+                                </span>
+                                <span class="progress-text" id="enrichmentTextTop">0%</span>
+                            </span>
+                        </div>
+                        <div>
+                            <button class="btn btn-secondary btn-sm" id="prevPageTop" onclick="prevPage()">Previous</button>
+                            <button class="btn btn-secondary btn-sm" id="nextPageTop" onclick="nextPage()">Next</button>
+                        </div>
+                    </div>
+
+                    <div class="loading" id="listingsLoading" style="display:none;">
                         <div class="spinner"></div>
                     </div>
                     <div class="table-container" id="listingsTable" style="display:none;">
@@ -332,32 +543,122 @@
                             <thead>
                                 <tr>
                                     <th class="checkbox-cell"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
-                                    <th>Image</th>
-                                    <th>Title</th>
-                                    <th>SKU</th>
-                                    <th>Price</th>
-                                    <th>Brand</th>
-                                    <th>Weight</th>
-                                    <th>Current US Postage</th>
-                                    <th>Calculated</th>
-                                    <th>Diff</th>
+                                    <th></th>
+                                    <th class="sortable" data-column="title" onclick="sortTable('title')">Title</th>
+                                    <th class="sortable" data-column="price" onclick="sortTable('price')">Price</th>
+                                    <th class="sortable" data-column="brand" onclick="sortTable('brand')">Brand</th>
+                                    <th class="sortable" data-column="coo" onclick="sortTable('coo')">COO</th>
+                                    <th class="sortable" data-column="weight" onclick="sortTable('weight')">Weight</th>
+                                    <th class="sortable" data-column="shipping" onclick="sortTable('shipping')">Current US Postage</th>
+                                    <th class="sortable" data-column="calculated" onclick="sortTable('calculated')">Calculated</th>
+                                    <th class="sortable" data-column="diff" onclick="sortTable('diff')">Diff</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="listingsBody"></tbody>
                         </table>
                     </div>
-                    <div id="listingsEmpty" style="display:none; padding: 2rem; text-align: center; color: var(--text-muted);">
-                        No listings found. Connect to eBay to load your inventory.
+                    <div id="listingsEmpty" style="display:block; padding: 2rem; text-align: center; color: var(--text-muted);">
+                        Please connect to eBay first.
                     </div>
                 </div>
                 <div class="pagination" id="listingsPagination" style="display:none;">
                     <div class="page-info">
                         Showing <span id="pageStart">0</span>-<span id="pageEnd">0</span> of <span id="pageTotal">0</span>
+                        <span id="enrichmentProgress" class="enrichment-progress" style="margin-left: 1rem; display: none;">
+                            <span style="color: var(--text-muted); margin-right: 0.5rem;">Enriching data:</span>
+                            <span class="progress-bar-container">
+                                <span class="progress-bar-fill" id="enrichmentBar"></span>
+                            </span>
+                            <span class="progress-text" id="enrichmentText">0%</span>
+                        </span>
                     </div>
                     <div>
                         <button class="btn btn-secondary btn-sm" id="prevPage" onclick="prevPage()">Previous</button>
                         <button class="btn btn-secondary btn-sm" id="nextPage" onclick="nextPage()">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sync Tab -->
+        <div class="tab-content" id="sync">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Account Synchronisation</h2>
+                </div>
+                <div class="card-body">
+                    <p style="margin-bottom: 1rem; color: var(--text-muted);">
+                        Use this to export data from your current eBay account to the database,
+                        or import data from another account's export.
+                    </p>
+
+                    <div id="accountStatusCard" style="background: var(--bg); padding: 1rem; border-radius: 0.375rem; margin-bottom: 1rem;">
+                        <h3 style="margin-bottom: 0.5rem; font-size: 1rem;">Current Account</h3>
+                        <div id="currentAccountDisplay">
+                            <div class="loading"><div class="spinner"></div></div>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                        <div>
+                            <h3 style="margin-bottom: 0.5rem; font-size: 1rem;">Export</h3>
+                            <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                                Save current eBay account data to database
+                            </p>
+                            <button class="btn btn-primary" onclick="exportData()" id="exportBtn">
+                                Export to Database
+                            </button>
+                        </div>
+                        <div>
+                            <h3 style="margin-bottom: 0.5rem; font-size: 1rem;">Import</h3>
+                            <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                                Restore data from database to current eBay account
+                            </p>
+                            <div class="form-group">
+                                <label>Source Account</label>
+                                <select id="sourceAccountSelect" style="margin-bottom: 0.5rem;">
+                                    <option value="">Select account...</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-success" onclick="importData()" id="importBtn">
+                                Import from Database
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="syncStatus" style="display: none; padding: 0.75rem; border-radius: 0.375rem; margin-bottom: 1rem;">
+                        <div class="loading"><div class="spinner"></div> <span id="syncStatusText" style="margin-left: 0.5rem;"></span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>Sync History</h2>
+                    <button class="btn btn-secondary" onclick="loadSyncHistory()">Refresh</button>
+                </div>
+                <div class="card-body">
+                    <div id="historyLoading" class="loading">
+                        <div class="spinner"></div>
+                    </div>
+                    <div id="historyTable" style="display: none;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Items</th>
+                                    <th>Started</th>
+                                    <th>Duration</th>
+                                    <th>Error</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="historyEmpty" style="display: none; padding: 2rem; text-align: center; color: var(--text-muted);">
+                        No sync history yet.
                     </div>
                 </div>
             </div>
@@ -394,6 +695,19 @@
             </div>
         </div>
     </main>
+
+    <!-- Image Carousel Modal -->
+    <div id="imageCarousel" class="modal">
+        <div class="modal-content">
+            <button class="carousel-close" onclick="closeCarousel()">&times;</button>
+            <img id="carouselImage" class="carousel-image" src="" alt="">
+            <button class="carousel-nav carousel-prev" onclick="prevImage()">&#10094;</button>
+            <button class="carousel-nav carousel-next" onclick="nextImage()">&#10095;</button>
+            <div class="carousel-counter">
+                <span id="imageIndex">1</span> / <span id="imageTotal">1</span>
+            </div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

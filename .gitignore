@@ -6,6 +6,9 @@ ebay-postage-helper.exe
 .env
 .env.local
 
+# Scripts with credentials
+restart-prod.sh
+
 # IDE
 .idea/
 .vscode/

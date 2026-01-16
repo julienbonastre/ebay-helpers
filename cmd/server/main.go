@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/gorilla/sessions"
 	"github.com/julienbonastre/ebay-helpers/internal/database"
+	"github.com/julienbonastre/ebay-helpers/internal/ebay"
 	"github.com/julienbonastre/ebay-helpers/internal/handlers"
 )
 
@@ -21,7 +23,7 @@ func main() {
 	port := flag.String("port", "8080", "Server port")
 	dbPath := flag.String("db", "ebay-helpers.db", "SQLite database path")
 	sandbox := flag.Bool("sandbox", true, "Use eBay sandbox environment")
-	storeName := flag.String("store", "", "Store name for account tracking (e.g., 'la_troverie')")
+	storeName := flag.String("store", "", "(DEPRECATED) Account is now auto-created via OAuth")
 	flag.Parse()
 
 	// Get eBay credentials from environment
@@ -29,6 +31,9 @@ func main() {
 	clientSecret := os.Getenv("EBAY_CLIENT_SECRET")
 	redirectURI := os.Getenv("EBAY_REDIRECT_URI")
 	marketplaceID := os.Getenv("EBAY_MARKETPLACE_ID")
+	verificationToken := os.Getenv("EBAY_VERIFICATION_TOKEN")
+	publicEndpoint := os.Getenv("EBAY_PUBLIC_ENDPOINT")
+	sessionSecret := os.Getenv("EBAY_SESSION_SECRET")
 
 	if redirectURI == "" {
 		redirectURI = "http://localhost:" + *port + "/api/oauth/callback"
@@ -36,19 +41,24 @@ func main() {
 	if marketplaceID == "" {
 		marketplaceID = "EBAY_AU"
 	}
+	if verificationToken == "" {
+		verificationToken = "changeme-verification-token"
+		log.Println("WARNING: Using default EBAY_VERIFICATION_TOKEN. Set env var for production.")
+	}
+	if publicEndpoint == "" {
+		publicEndpoint = "http://localhost:" + *port + "/api/marketplace-account-deletion"
+		log.Println("INFO: Using default EBAY_PUBLIC_ENDPOINT. Set env var for production.")
+	}
+	if sessionSecret == "" {
+		sessionSecret = "changeme-insecure-session-secret-please-set-env-var"
+		log.Println("WARNING: Using default EBAY_SESSION_SECRET. Generate a secure random key for production!")
+		log.Println("         Run: openssl rand -base64 32")
+	}
 
-	// Determine account identifier
+	// Determine environment
 	environment := "sandbox"
 	if !*sandbox {
 		environment = "production"
-	}
-
-	accountKey := *storeName + "_" + environment + "_" + marketplaceID
-	displayName := *storeName
-	if environment == "production" {
-		displayName += " Production"
-	} else {
-		displayName += " Sandbox"
 	}
 
 	// Initialize database
@@ -70,26 +80,32 @@ func main() {
 		log.Fatalf("Failed to seed initial data: %v", err)
 	}
 
-	// Get or create account record
-	var currentAccount *database.Account
+	// Account will be auto-created after OAuth authentication
+	// No longer pre-creating accounts from -store flag
 	if *storeName != "" {
-		currentAccount, err = db.GetOrCreateAccount(accountKey, displayName, environment, marketplaceID)
-		if err != nil {
-			log.Fatalf("Failed to get/create account: %v", err)
-		}
-		log.Printf("Account: %s (%s)", currentAccount.DisplayName, currentAccount.AccountKey)
+		log.Printf("WARNING: -store flag is deprecated. Account will be auto-created from eBay username after OAuth.")
 	}
 
-	// Create eBay client
-	ebayClient := ebay.NewClient(ebay.Config{
+	// Initialise database-backed session store (avoids 4KB cookie size limit)
+	sessionStore := database.NewDBSessionStore(db, []byte(sessionSecret))
+	sessionStore.SetOptions(&sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 30, // 30 days
+		HttpOnly: true,
+		Secure:   !*sandbox, // Only use Secure flag in production (requires HTTPS)
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	// Create eBay config for handlers
+	ebayConfig := ebay.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURI:  redirectURI,
 		Sandbox:      *sandbox,
-	})
+	}
 
-	// Create handlers
-	h := handlers.NewHandler(db, ebayClient, currentAccount)
+	// Create handlers with session store (no shared eBay client)
+	h := handlers.NewHandler(db, ebayConfig, sessionStore, verificationToken, publicEndpoint, environment, marketplaceID)
 
 	// Set up routes
 	mux := http.NewServeMux()
@@ -105,10 +121,17 @@ func main() {
 	mux.HandleFunc("/api/auth/url", h.GetAuthURL)
 	mux.HandleFunc("/api/auth/status", h.GetAuthStatus)
 	mux.HandleFunc("/api/oauth/callback", h.OAuthCallback)
+	mux.HandleFunc("/api/logout", h.Logout)
+
+	// Marketplace Account Deletion (required for production API activation)
+	mux.HandleFunc("/api/marketplace-account-deletion", h.MarketplaceAccountDeletion)
+	mux.HandleFunc("/api/deletion-notifications", h.GetDeletionNotifications)
 
 	// eBay API
 	mux.HandleFunc("/api/inventory", h.GetInventoryItems)
 	mux.HandleFunc("/api/offers", h.GetOffers)
+	mux.HandleFunc("/api/offers/enriched", h.GetEnrichedData) // Progressive enrichment data
+	mux.HandleFunc("/api/listings", h.GetListings)            // DB-backed listings with server-side sort/filter
 	mux.HandleFunc("/api/policies", h.GetFulfillmentPolicies)
 	mux.HandleFunc("/api/update-shipping", h.UpdateOfferShipping)
 
@@ -119,6 +142,7 @@ func main() {
 
 	// Calculator
 	mux.HandleFunc("/api/calculate", h.CalculateShipping)
+	mux.HandleFunc("/api/calculate/batch", h.BatchCalculate) // Server-side batch calculation
 	mux.HandleFunc("/api/brands", h.GetBrands)
 	mux.HandleFunc("/api/weight-bands", h.GetWeightBands)
 	mux.HandleFunc("/api/tariff-countries", h.GetTariffCountries)
@@ -137,26 +161,27 @@ func main() {
 	log.Printf("eBay Postage Helper - http://localhost%s", addr)
 	log.Println("==================================================================")
 	log.Printf("Database: %s", *dbPath)
-	if currentAccount != nil {
-		log.Printf("Account: %s", currentAccount.DisplayName)
-		log.Printf("Environment: %s", currentAccount.Environment)
-		log.Printf("Marketplace: %s", currentAccount.MarketplaceID)
-	} else {
-		log.Println("Account: Not specified (use -store flag)")
-	}
+	log.Printf("Environment: %s", environment)
+	log.Printf("Marketplace: %s", marketplaceID)
+	log.Println("Account: Will be auto-created after OAuth authentication")
+	log.Println("")
+	log.Println("Marketplace Account Deletion Endpoint:")
+	log.Printf("  %s", publicEndpoint)
+	log.Println("  (Required for production API activation)")
 	log.Println("")
 	log.Println("Workflow:")
-	log.Println("  1. Export: Run with production credentials → Click 'Export' to save to DB")
-	log.Println("  2. Import: Restart with sandbox credentials → Click 'Import' to restore")
+	log.Println("  1. Click 'Connect to eBay' to authenticate (account auto-created)")
+	log.Println("  2. Export: Click 'Export' to save your eBay data to database")
+	log.Println("  3. Import: Restart with different credentials → Click 'Import' to restore")
 	log.Println("")
 	log.Println("Example:")
 	log.Println("  # Export from production")
 	log.Println("  EBAY_CLIENT_ID=xxx EBAY_CLIENT_SECRET=yyy \\")
-	log.Println("    ./ebay-postage-helper -sandbox=false -store=la_troverie")
+	log.Println("    ./ebay-postage-helper -sandbox=false")
 	log.Println("")
 	log.Println("  # Import to sandbox")
 	log.Println("  EBAY_CLIENT_ID=sandbox_xxx EBAY_CLIENT_SECRET=sandbox_yyy \\")
-	log.Println("    ./ebay-postage-helper -sandbox=true -store=la_troverie")
+	log.Println("    ./ebay-postage-helper -sandbox=true")
 	log.Println("==================================================================")
 	log.Println("")
 

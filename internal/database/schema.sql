@@ -1,9 +1,11 @@
 -- Account tracking - identifies which eBay account data came from
--- Auto-created when exporting, used to identify import source
+-- Auto-created after OAuth, used to identify import source
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_key TEXT NOT NULL UNIQUE,       -- e.g., "la_troverie_production_EBAY_AU"
-    display_name TEXT,                      -- e.g., "La Troverie Production"
+    account_key TEXT NOT NULL UNIQUE,       -- e.g., "testuser_sandbox_EBAY_AU"
+    display_name TEXT,                      -- e.g., "testuser Sandbox"
+    ebay_user_id TEXT,                      -- eBay's immutable user ID (for deletion matching)
+    ebay_username TEXT,                     -- eBay username from User API
     environment TEXT NOT NULL,              -- "production" or "sandbox"
     marketplace_id TEXT NOT NULL,           -- e.g., "EBAY_AU"
     last_export_at DATETIME,                -- When last export happened
@@ -118,11 +120,48 @@ CREATE TABLE IF NOT EXISTS tariff_rates (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Marketplace account deletion notifications (eBay compliance requirement)
+CREATE TABLE IF NOT EXISTS deletion_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    notification_id TEXT NOT NULL UNIQUE,   -- eBay's unique notification ID
+    username TEXT NOT NULL,                 -- eBay username
+    user_id TEXT,                           -- Immutable user identifier
+    eias_token TEXT,                        -- Legacy token identifier
+    event_date DATETIME NOT NULL,           -- When user requested deletion
+    received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    processed BOOLEAN DEFAULT FALSE,        -- Whether we've handled the deletion
+    processed_at DATETIME,                  -- When we processed it
+    raw_payload TEXT NOT NULL               -- Full JSON payload for audit trail
+);
+
+-- Enriched item cache - stores brand and shipping data from GetItem API
+-- Uses TTL to avoid redundant API calls (data rarely changes)
+CREATE TABLE IF NOT EXISTS enriched_items (
+    item_id TEXT PRIMARY KEY,               -- eBay Item ID (unique identifier)
+    brand TEXT,                             -- Brand from GetItem API
+    country_of_origin TEXT,                 -- Country of Origin from ItemSpecifics
+    shipping_cost TEXT,                     -- US shipping cost
+    shipping_currency TEXT,                 -- Shipping cost currency
+    images TEXT,                            -- JSON array of full-size image URLs
+    enriched_at DATETIME NOT NULL,          -- When this data was fetched (for TTL checking)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Sessions - stores user session data (OAuth tokens)
+-- Uses database storage to avoid cookie size limitations (eBay tokens are ~5KB)
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,            -- Random session identifier (stored in cookie)
+    data TEXT NOT NULL,                     -- Session data (OAuth token JSON, encrypted)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL            -- When session expires (30 days default)
+);
+
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_accounts_active ON accounts(is_active);
 CREATE INDEX IF NOT EXISTS idx_inventory_sku ON inventory_items(account_id, sku);
 CREATE INDEX IF NOT EXISTS idx_offers_sku ON offers(account_id, sku);
 CREATE INDEX IF NOT EXISTS idx_offers_status ON offers(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_sync_history_account ON sync_history(account_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_brand_coo_brand ON brand_coo_mappings(brand_name);
 CREATE INDEX IF NOT EXISTS idx_tariff_country ON tariff_rates(country_name);
+CREATE INDEX IF NOT EXISTS idx_enriched_items_at ON enriched_items(enriched_at);
