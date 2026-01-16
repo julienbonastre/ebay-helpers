@@ -567,27 +567,27 @@ func (h *Handler) GetOffers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Need to fetch from eBay - fetch ALL listings and cache them
-	log.Printf("[CACHE] Fetching all listings from eBay (force=%v, cacheAge=%v)", forceRefresh, cacheAge.Round(time.Second))
+	// Need to fetch from eBay - fetch ALL listings CONCURRENTLY and cache them
+	log.Printf("[CACHE] Fetching all listings from eBay CONCURRENTLY (force=%v, cacheAge=%v)", forceRefresh, cacheAge.Round(time.Second))
 
-	var allOffers []map[string]interface{}
-	pageNumber := 1
+	startTime := time.Now()
 	pageSize := 100 // Max allowed by Trading API
-	totalItems := 0
 
-	for {
-		log.Printf("[CACHE] Fetching page %d from eBay...", pageNumber)
-		items, total, err := client.GetMyeBaySelling(r.Context(), pageNumber, pageSize)
-		if err != nil {
-			log.Printf("GetMyeBaySelling error: %v", err)
-			errorResponse(w, http.StatusInternalServerError, "Failed to fetch listings: "+err.Error())
-			return
-		}
+	// First, fetch page 1 to get total count
+	log.Printf("[CACHE] Fetching page 1 to get total count...")
+	firstPageItems, totalItems, err := client.GetMyeBaySelling(r.Context(), 1, pageSize)
+	if err != nil {
+		log.Printf("GetMyeBaySelling error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to fetch listings: "+err.Error())
+		return
+	}
 
-		totalItems = total
-		log.Printf("[CACHE] Page %d: got %d items (total: %d)", pageNumber, len(items), total)
+	totalPages := (totalItems + pageSize - 1) / pageSize
+	log.Printf("[CACHE] Total items: %d, pages: %d", totalItems, totalPages)
 
-		// Convert to offers format
+	// Convert first page items
+	convertItems := func(items []ebay.TradingItem) []map[string]interface{} {
+		offers := make([]map[string]interface{}, 0, len(items))
 		for _, item := range items {
 			offer := map[string]interface{}{
 				"offerId": item.ItemID,
@@ -600,7 +600,6 @@ func (h *Handler) GetOffers(w http.ResponseWriter, r *http.Request) {
 					},
 				},
 			}
-
 			if item.ImageURL != "" {
 				offer["image"] = map[string]interface{}{
 					"imageUrl": item.ImageURL,
@@ -615,16 +614,76 @@ func (h *Handler) GetOffers(w http.ResponseWriter, r *http.Request) {
 					"currency": item.ShippingCurrency,
 				}
 			}
-
-			allOffers = append(allOffers, offer)
+			offers = append(offers, offer)
 		}
-
-		// Check if we have all items
-		if len(allOffers) >= totalItems || len(items) == 0 {
-			break
-		}
-		pageNumber++
+		return offers
 	}
+
+	// Start with first page results
+	allOffers := convertItems(firstPageItems)
+
+	// If more pages, fetch them concurrently
+	if totalPages > 1 {
+		const maxWorkers = 5 // Concurrent requests to eBay (be nice, don't DDoS them!)
+
+		type pageResult struct {
+			pageNum int
+			items   []ebay.TradingItem
+			err     error
+		}
+
+		// Channel for page numbers to fetch
+		pageChan := make(chan int, totalPages-1)
+		// Channel for results
+		resultChan := make(chan pageResult, totalPages-1)
+
+		// Start worker goroutines
+		var wg sync.WaitGroup
+		for i := 0; i < maxWorkers; i++ {
+			wg.Add(1)
+			go func(workerID int) {
+				defer wg.Done()
+				for pageNum := range pageChan {
+					log.Printf("[CACHE-WORKER-%d] Fetching page %d...", workerID, pageNum)
+					items, _, err := client.GetMyeBaySelling(r.Context(), pageNum, pageSize)
+					resultChan <- pageResult{pageNum: pageNum, items: items, err: err}
+				}
+			}(i)
+		}
+
+		// Queue remaining pages (2 to totalPages)
+		for p := 2; p <= totalPages; p++ {
+			pageChan <- p
+		}
+		close(pageChan)
+
+		// Wait for all workers to finish, then close results channel
+		go func() {
+			wg.Wait()
+			close(resultChan)
+		}()
+
+		// Collect results into a map (to preserve order)
+		pageResults := make(map[int][]map[string]interface{})
+		for result := range resultChan {
+			if result.err != nil {
+				log.Printf("[CACHE-ERROR] Page %d failed: %v", result.pageNum, result.err)
+				continue // Skip failed pages rather than failing entirely
+			}
+			log.Printf("[CACHE] Page %d: got %d items", result.pageNum, len(result.items))
+			pageResults[result.pageNum] = convertItems(result.items)
+		}
+
+		// Append results in order (page 2, 3, 4, ...)
+		for p := 2; p <= totalPages; p++ {
+			if offers, ok := pageResults[p]; ok {
+				allOffers = append(allOffers, offers...)
+			}
+		}
+	}
+
+	elapsed := time.Since(startTime)
+	log.Printf("[CACHE] Fetched %d listings in %v (concurrent mode)", len(allOffers), elapsed.Round(time.Millisecond))
 
 	// Update cache
 	h.listingsMutex.Lock()
@@ -717,10 +776,11 @@ func (h *Handler) GetEnrichedData(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fetch uncached items in parallel (limit concurrency to 20)
+	// Fetch uncached items in parallel (limit concurrency to 30)
 	// eBay Trading API rate limits are typically 5000 calls/day for production
+	// Each item = 1-2 API calls (Trading API + potential Browse API fallback)
 	if len(toFetch) > 0 {
-		const maxConcurrent = 20
+		const maxConcurrent = 30
 		sem := make(chan struct{}, maxConcurrent)
 		var wg sync.WaitGroup
 
