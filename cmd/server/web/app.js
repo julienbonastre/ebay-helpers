@@ -1612,7 +1612,9 @@ function openAddTariffModal() {
     document.getElementById('tariffCountry').value = '';
     document.getElementById('tariffRate').value = '';
     document.getElementById('tariffNotes').value = '';
-    document.getElementById('tariffModal').style.display = 'flex';
+    const modal = document.getElementById('tariffModal');
+    modal.classList.add('active');
+    modal.style.display = 'flex';
 }
 
 function editTariff(id) {
@@ -1624,11 +1626,15 @@ function editTariff(id) {
     document.getElementById('tariffCountry').value = tariff.countryName;
     document.getElementById('tariffRate').value = (tariff.tariffRate * 100).toFixed(2);
     document.getElementById('tariffNotes').value = tariff.notes || '';
-    document.getElementById('tariffModal').style.display = 'flex';
+    const modal = document.getElementById('tariffModal');
+    modal.classList.add('active');
+    modal.style.display = 'flex';
 }
 
 function closeTariffModal() {
-    document.getElementById('tariffModal').style.display = 'none';
+    const modal = document.getElementById('tariffModal');
+    modal.classList.remove('active');
+    modal.style.display = 'none';
 }
 
 async function saveTariff(event) {
@@ -1699,7 +1705,9 @@ function openAddBrandModal() {
     select.innerHTML = '<option value="">Select Country</option>' +
         window.dbTariffs.map(t => `<option value="${t.countryName}">${t.countryName}</option>`).join('');
 
-    document.getElementById('brandModal').style.display = 'flex';
+    const modal = document.getElementById('brandModal');
+    modal.classList.add('active');
+    modal.style.display = 'flex';
 }
 
 function editBrand(id) {
@@ -1716,11 +1724,15 @@ function editBrand(id) {
     select.innerHTML = '<option value="">Select Country</option>' +
         window.dbTariffs.map(t => `<option value="${t.countryName}" ${t.countryName === brand.primaryCoo ? 'selected' : ''}>${t.countryName}</option>`).join('');
 
-    document.getElementById('brandModal').style.display = 'flex';
+    const modal = document.getElementById('brandModal');
+    modal.classList.add('active');
+    modal.style.display = 'flex';
 }
 
 function closeBrandModal() {
-    document.getElementById('brandModal').style.display = 'none';
+    const modal = document.getElementById('brandModal');
+    modal.classList.remove('active');
+    modal.style.display = 'none';
 }
 
 async function saveBrand(event) {
