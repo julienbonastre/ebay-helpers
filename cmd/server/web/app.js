@@ -1615,6 +1615,7 @@ function openAddTariffModal() {
     const modal = document.getElementById('tariffModal');
     modal.classList.add('active');
     modal.style.display = 'flex';
+    document.addEventListener('keydown', handleTariffModalKeys);
 }
 
 function editTariff(id) {
@@ -1629,12 +1630,20 @@ function editTariff(id) {
     const modal = document.getElementById('tariffModal');
     modal.classList.add('active');
     modal.style.display = 'flex';
+    document.addEventListener('keydown', handleTariffModalKeys);
 }
 
 function closeTariffModal() {
     const modal = document.getElementById('tariffModal');
     modal.classList.remove('active');
     modal.style.display = 'none';
+    document.removeEventListener('keydown', handleTariffModalKeys);
+}
+
+function handleTariffModalKeys(e) {
+    if (e.key === 'Escape') {
+        closeTariffModal();
+    }
 }
 
 async function saveTariff(event) {
@@ -1708,6 +1717,7 @@ function openAddBrandModal() {
     const modal = document.getElementById('brandModal');
     modal.classList.add('active');
     modal.style.display = 'flex';
+    document.addEventListener('keydown', handleBrandModalKeys);
 }
 
 function editBrand(id) {
@@ -1727,12 +1737,20 @@ function editBrand(id) {
     const modal = document.getElementById('brandModal');
     modal.classList.add('active');
     modal.style.display = 'flex';
+    document.addEventListener('keydown', handleBrandModalKeys);
 }
 
 function closeBrandModal() {
     const modal = document.getElementById('brandModal');
     modal.classList.remove('active');
     modal.style.display = 'none';
+    document.removeEventListener('keydown', handleBrandModalKeys);
+}
+
+function handleBrandModalKeys(e) {
+    if (e.key === 'Escape') {
+        closeBrandModal();
+    }
 }
 
 async function saveBrand(event) {
