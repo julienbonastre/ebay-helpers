@@ -173,11 +173,19 @@ function clearSearch() {
 
 // Check authentication status
 // Table sorting - now sorts ALL listings, not just current page
+// 3-state toggle: asc → desc → reset (default ItemID desc)
 function sortTable(column) {
-    // Toggle sort direction if same column, otherwise default to ascending
     if (sortColumn === column) {
-        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        // Same column: cycle through asc → desc → reset
+        if (sortDirection === 'asc') {
+            sortDirection = 'desc';
+        } else if (sortDirection === 'desc') {
+            // Reset to default (no active sort column)
+            sortColumn = '';
+            sortDirection = 'desc';
+        }
     } else {
+        // New column: start with ascending
         sortColumn = column;
         sortDirection = 'asc';
     }
@@ -186,9 +194,13 @@ function sortTable(column) {
     document.querySelectorAll('th.sortable').forEach(th => {
         th.classList.remove('sorted-asc', 'sorted-desc');
     });
-    const header = document.querySelector(`th[data-column="${column}"]`);
-    if (header) {
-        header.classList.add(sortDirection === 'asc' ? 'sorted-asc' : 'sorted-desc');
+
+    // Only show sort indicator if a column is actively sorted
+    if (sortColumn) {
+        const header = document.querySelector(`th[data-column="${column}"]`);
+        if (header) {
+            header.classList.add(sortDirection === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
     }
 
     // Apply sorting to ALL listings and re-render
@@ -810,9 +822,11 @@ async function renderListings() {
 
         // Store full-size image URLs for carousel
         // Convert thumbnail to full-size (1600px) for better quality viewing
+        // Only set if we don't already have enriched images (prevents overwriting multi-image arrays)
         const fullSizeImageUrl = getFullSizeImageUrl(imageUrl);
-        carouselImages.set(offer.offerId, [fullSizeImageUrl]);
-        // TODO: Fetch all listing images from eBay API for multi-image carousel support
+        if (!carouselImages.has(offer.offerId) || carouselImages.get(offer.offerId).length <= 1) {
+            carouselImages.set(offer.offerId, [fullSizeImageUrl]);
+        }
 
         // Get enriched data from cache (if available)
         const enriched = enrichedDataCache.get(offer.offerId);
