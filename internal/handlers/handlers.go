@@ -1,38 +1,248 @@
 package handlers
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/julienbonastre/ebay-helpers/internal/calculator"
 	"github.com/julienbonastre/ebay-helpers/internal/database"
 	"github.com/julienbonastre/ebay-helpers/internal/ebay"
-	"github.com/julienbonastre/ebay-helpers/internal/sync"
+	syncpkg "github.com/julienbonastre/ebay-helpers/internal/sync"
+	"golang.org/x/oauth2"
 )
+
+// EnrichedItemData holds enriched item details from GetItem API
+// Now includes server-calculated postage to keep business logic on backend
+type EnrichedItemData struct {
+	ItemID           string    `json:"itemId"`
+	Brand            string    `json:"brand"`
+	CountryOfOrigin  string    `json:"countryOfOrigin"`
+	ExpectedCOO      string    `json:"expectedCoo"`      // From brand mapping
+	COOStatus        string    `json:"cooStatus"`        // "match", "mismatch", "missing"
+	ShippingCost     string    `json:"shippingCost"`
+	ShippingCurrency string    `json:"shippingCurrency"`
+	CalculatedCost   float64   `json:"calculatedCost"`   // Server-calculated postage
+	Diff             float64   `json:"diff"`             // ShippingCost - CalculatedCost
+	DiffStatus       string    `json:"diffStatus"`       // "ok" (green) or "bad" (red)
+	Images           []string  `json:"images"`
+	EnrichedAt       time.Time `json:"enrichedAt"`
+}
 
 // Handler holds dependencies for HTTP handlers
 type Handler struct {
-	db             *database.DB
-	ebayClient     *ebay.Client
-	currentAccount *database.Account // Current instance's account (can be nil)
-	syncService    *sync.Service
-	mu             sync.RWMutex
-	oauthState     string
+	db                *database.DB
+	ebayConfig        ebay.Config                // eBay configuration (no shared client)
+	sessionStore      *database.DBSessionStore   // Session store for per-user tokens
+	currentAccount    *database.Account          // Current instance's account (can be nil until OAuth)
+	syncService       *syncpkg.Service
+	mu                sync.RWMutex
+	oauthState        string
+	verificationToken string                     // eBay verification token for account deletion notifications
+	endpoint          string                     // Public endpoint URL for this server
+	environment       string                     // "production" or "sandbox"
+	marketplaceID     string                     // Default marketplace ID
+
+	// Item enrichment cache and background worker
+	enrichmentCache   map[string]*EnrichedItemData // ItemID -> EnrichedItemData
+	enrichmentMutex   sync.RWMutex                 // Protects enrichmentCache
+	enrichmentQueue   chan string                  // Queue of ItemIDs to enrich
+
+	// Listings cache - avoids re-fetching from eBay on every page load
+	listingsCache     []map[string]interface{}     // Cached offer listings
+	listingsCacheTime time.Time                    // When cache was last updated
+	listingsMutex     sync.RWMutex                 // Protects listingsCache
 }
 
 // NewHandler creates a new handler
-func NewHandler(db *database.DB, client *ebay.Client, currentAccount *database.Account) *Handler {
-	return &Handler{
-		db:             db,
-		ebayClient:     client,
-		currentAccount: currentAccount,
-		syncService:    sync.NewService(db),
+func NewHandler(db *database.DB, config ebay.Config, sessionStore *database.DBSessionStore, verificationToken, endpoint, environment, marketplaceID string) *Handler {
+	h := &Handler{
+		db:                db,
+		ebayConfig:        config,
+		sessionStore:      sessionStore,
+		currentAccount:    nil, // Will be set after OAuth
+		syncService:       syncpkg.NewService(db),
+		verificationToken: verificationToken,
+		endpoint:          endpoint,
+		environment:       environment,
+		marketplaceID:     marketplaceID,
+		enrichmentCache:   make(map[string]*EnrichedItemData),
+		enrichmentQueue:   make(chan string, 1000), // Buffer up to 1000 items
+	}
+
+	// TODO: Background enrichment worker disabled for session-based auth
+	// The enrichment worker ran in a background goroutine without HTTP request context,
+	// which means it couldn't access session-based OAuth tokens.
+	// To re-enable, refactor to either:
+	// 1. Make enrichment on-demand per request, or
+	// 2. Store a reference to the current user's token (complex with multi-user sessions)
+	// go h.enrichmentWorker()
+
+	return h
+}
+
+// Session constants
+const (
+	sessionName = "ebay-helper-session"
+	tokenKey    = "oauth_token"
+)
+
+// getEbayClient creates a client for this request using session token
+func (h *Handler) getEbayClient(r *http.Request) (*ebay.Client, error) {
+	session, err := h.sessionStore.Get(r, sessionName)
+	if err != nil {
+		log.Printf("[AUTH-DEBUG] Failed to get session: %v", err)
+		return nil, fmt.Errorf("failed to get session: %w", err)
+	}
+
+	log.Printf("[AUTH-DEBUG] Session ID: %s", session.ID)
+	log.Printf("[AUTH-DEBUG] Session.Values keys: %v", getSessionKeys(session.Values))
+
+	client := ebay.NewClient(h.ebayConfig)
+
+	// Load token from session if it exists
+	// Note: token may be []byte (in-memory) or string (from database JSON)
+	if tokenData, ok := session.Values[tokenKey].([]byte); ok {
+		log.Printf("[AUTH-DEBUG] Found token as []byte, length: %d", len(tokenData))
+		var token oauth2.Token
+		if err := json.Unmarshal(tokenData, &token); err == nil {
+			log.Printf("[AUTH-DEBUG] Successfully unmarshalled token from []byte, expiry: %v", token.Expiry)
+			client.SetToken(&token)
+		} else {
+			log.Printf("[AUTH-DEBUG] Failed to unmarshal token from []byte: %v", err)
+		}
+	} else if tokenStr, ok := session.Values[tokenKey].(string); ok {
+		log.Printf("[AUTH-DEBUG] Found token as string, length: %d", len(tokenStr))
+		// When loaded from database, []byte becomes base64-encoded string after JSON round-trip
+		// Need to base64-decode first, then unmarshal
+		tokenBytes, err := base64.StdEncoding.DecodeString(tokenStr)
+		if err != nil {
+			log.Printf("[AUTH-DEBUG] Failed to base64-decode token: %v", err)
+		} else {
+			var token oauth2.Token
+			if err := json.Unmarshal(tokenBytes, &token); err == nil {
+				log.Printf("[AUTH-DEBUG] Successfully unmarshalled token from base64 string, expiry: %v", token.Expiry)
+				client.SetToken(&token)
+			} else {
+				log.Printf("[AUTH-DEBUG] Failed to unmarshal token from decoded bytes: %v", err)
+			}
+		}
+	} else {
+		log.Printf("[AUTH-DEBUG] No token found in session! Token key '%s' not present or wrong type", tokenKey)
+		if val, exists := session.Values[tokenKey]; exists {
+			log.Printf("[AUTH-DEBUG] Token key exists but has type: %T", val)
+		}
+	}
+
+	return client, nil
+}
+
+// Helper to get session keys for debugging
+func getSessionKeys(values map[interface{}]interface{}) []string {
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, fmt.Sprintf("%v", k))
+	}
+	return keys
+}
+
+// saveTokenToSession stores the OAuth token in the session
+func (h *Handler) saveTokenToSession(w http.ResponseWriter, r *http.Request, token *oauth2.Token) error {
+	session, err := h.sessionStore.Get(r, sessionName)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	tokenData, err := json.Marshal(token)
+	if err != nil {
+		return fmt.Errorf("failed to marshal token: %w", err)
+	}
+
+	session.Values[tokenKey] = tokenData
+	return session.Save(r, w)
+}
+
+// clearSession removes all session data
+func (h *Handler) clearSession(w http.ResponseWriter, r *http.Request) error {
+	session, err := h.sessionStore.Get(r, sessionName)
+	if err != nil {
+		return err
+	}
+	session.Options.MaxAge = -1
+	return session.Save(r, w)
+}
+
+// TODO: enrichmentWorker disabled for session-based auth
+// The enrichmentWorker ran in a background goroutine without HTTP request context,
+// which means it couldn't access session-based OAuth tokens.
+// To re-enable, refactor to either:
+// 1. Make enrichment on-demand per request, or
+// 2. Store a reference to the current user's token (complex with multi-user sessions)
+/*
+func (h *Handler) enrichmentWorker() {
+	const numWorkers = 25 // Process 25 items concurrently
+	log.Printf("[ENRICHMENT] Background worker started with %d concurrent workers", numWorkers)
+
+	// Create worker pool
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+
+			for itemID := range h.enrichmentQueue {
+				// Check if already enriched
+				h.enrichmentMutex.RLock()
+				_, exists := h.enrichmentCache[itemID]
+				h.enrichmentMutex.RUnlock()
+
+				if exists {
+					continue // Already enriched
+				}
+
+				// Fetch item details using GetItem
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				// NOTE: Can't use h.ebayClient anymore with session-based auth
+				// brand, shippingCost, shippingCurrency, coo, images, err := h.ebayClient.GetItem(ctx, itemID)
+				cancel()
+
+				// Store empty entry to avoid retrying failed items
+				h.enrichmentMutex.Lock()
+				h.enrichmentCache[itemID] = &EnrichedItemData{
+					ItemID:     itemID,
+					EnrichedAt: time.Now(),
+				}
+				h.enrichmentMutex.Unlock()
+			}
+		}(i)
+	}
+
+	// Wait for all workers to finish (this won't happen until channel is closed)
+	wg.Wait()
+	log.Printf("[ENRICHMENT] All workers stopped")
+}
+
+func (h *Handler) queueItemsForEnrichment(itemIDs []string) {
+	for _, itemID := range itemIDs {
+		select {
+		case h.enrichmentQueue <- itemID:
+			// Queued successfully
+		default:
+			// Queue is full, skip this item
+			log.Printf("[ENRICHMENT] Queue full, skipping item %s", itemID)
+		}
 	}
 }
+*/
 
 // JSON response helper
 func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
@@ -50,27 +260,71 @@ func errorResponse(w http.ResponseWriter, status int, message string) {
 
 // HealthCheck returns API health status
 func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	client, err := h.getEbayClient(r)
+	authenticated := false
+	if err == nil {
+		authenticated = client.IsAuthenticated()
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"status":        "ok",
-		"authenticated": h.ebayClient.IsAuthenticated(),
-		"configured":    h.ebayClient.IsConfigured(),
+		"authenticated": authenticated,
+		"configured":    h.ebayConfig.ClientID != "",
 		"hasAccount":    h.currentAccount != nil,
 	})
 }
 
 // GetCurrentAccount returns the current instance's account info
 func (h *Handler) GetCurrentAccount(w http.ResponseWriter, r *http.Request) {
-	if h.currentAccount == nil {
+	h.mu.RLock()
+	account := h.currentAccount
+	h.mu.RUnlock()
+
+	log.Printf("[DEBUG] GetCurrentAccount called, currentAccount: %+v", account)
+
+	// If no account in memory but user has valid session, hydrate from eBay
+	if account == nil {
+		client, err := h.getEbayClient(r)
+		if err == nil && client.IsAuthenticated() {
+			log.Printf("[DEBUG] Session valid but no account - hydrating from eBay API")
+
+			// Fetch user info from eBay
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			user, err := client.GetUser(ctx)
+			cancel()
+
+			if err == nil && user != nil {
+				// Create/update account in database
+				accountKey := fmt.Sprintf("%s_%s", user.UserID, h.environment)
+				dbAccount, err := h.db.GetOrCreateAccountFromEbay(accountKey, user.Username, h.environment, h.marketplaceID)
+				if err == nil {
+					h.mu.Lock()
+					h.currentAccount = dbAccount
+					account = dbAccount
+					h.mu.Unlock()
+					log.Printf("[DEBUG] Account hydrated: %s (env: %s)", account.DisplayName, account.Environment)
+				} else {
+					log.Printf("[DEBUG] Failed to get/create account: %v", err)
+				}
+			} else {
+				log.Printf("[DEBUG] Failed to fetch user info: %v", err)
+			}
+		}
+	}
+
+	if account == nil {
+		log.Printf("[DEBUG] Returning configured=false (no account)")
 		jsonResponse(w, http.StatusOK, map[string]interface{}{
 			"configured": false,
-			"message":    "No account specified. Use -store flag when starting server.",
+			"message":    "Not connected to an eBay account. Authenticate to continue.",
 		})
 		return
 	}
 
+	log.Printf("[DEBUG] Returning account: %s (env: %s)", account.DisplayName, account.Environment)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"configured": true,
-		"account":    h.currentAccount,
+		"account":    account,
 	})
 }
 
@@ -96,7 +350,8 @@ func (h *Handler) GetAuthURL(w http.ResponseWriter, r *http.Request) {
 	state := h.oauthState
 	h.mu.Unlock()
 
-	url := h.ebayClient.GetAuthURL(state)
+	client := ebay.NewClient(h.ebayConfig)
+	url := client.GetAuthURL(state)
 	jsonResponse(w, http.StatusOK, map[string]string{"url": url})
 }
 
@@ -134,28 +389,139 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Exchanging code for token...")
-	if err := h.ebayClient.ExchangeCode(r.Context(), code); err != nil {
+	client := ebay.NewClient(h.ebayConfig)
+	if err := client.ExchangeCode(r.Context(), code); err != nil {
 		log.Printf("OAuth exchange error: %v", err)
 		http.Error(w, "Failed to authenticate: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("OAuth success! Token obtained.")
+	// Get the token from the client and save it to session
+	token := client.GetToken()
+	if token == nil {
+		log.Printf("ERROR: Token is nil after exchange")
+		http.Error(w, "Failed to obtain token", http.StatusInternalServerError)
+		return
+	}
+
+	// Save token to session
+	if err := h.saveTokenToSession(w, r, token); err != nil {
+		log.Printf("Failed to save token to session: %v", err)
+		http.Error(w, "Failed to save authentication", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("OAuth success! Token obtained and saved to session.")
+	log.Printf("[DEBUG] Environment: %s, MarketplaceID: %s", h.environment, h.marketplaceID)
+
+	// Fetch eBay username using Commerce Identity API with retry logic
+	// No useless fallbacks - if this fails, we show a proper error to the user
+	log.Printf("[DEBUG] Fetching eBay user info...")
+	var username, userID string
+	var userErr error
+
+	// Retry logic: 3 attempts with increasing timeout
+	maxAttempts := 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		timeout := time.Duration(5+attempt*5) * time.Second // 10s, 15s, 20s
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+
+		log.Printf("[DEBUG] Attempt %d/%d to fetch user info (timeout: %v)", attempt, maxAttempts, timeout)
+		user, err := client.GetUser(ctx)
+		cancel()
+
+		if err == nil && user != nil {
+			username = user.Username
+			userID = user.UserID
+			log.Printf("SUCCESS: Authenticated as eBay user: %s (ID: %s)", username, userID)
+			userErr = nil
+			break
+		}
+
+		userErr = err
+		log.Printf("WARNING: Attempt %d failed: %v", attempt, err)
+
+		if attempt < maxAttempts {
+			backoff := time.Duration(attempt) * time.Second
+			log.Printf("[DEBUG] Retrying in %v...", backoff)
+			time.Sleep(backoff)
+		}
+	}
+
+	if userErr != nil {
+		log.Printf("ERROR: Failed to fetch eBay user info after %d attempts: %v", maxAttempts, userErr)
+		http.Error(w, "Unable to connect to eBay to verify your account. Please try again later.", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Use a unique identifier based on the actual eBay user ID
+	accountKey := fmt.Sprintf("%s_%s", userID, h.environment)
+
+	// Create or update account with real eBay username
+	log.Printf("[DEBUG] Creating/updating account with username: %s (UserID: %s)", username, userID)
+	account, err := h.db.GetOrCreateAccountFromEbay(accountKey, username, h.environment, h.marketplaceID)
+	if err != nil {
+		log.Printf("ERROR: Failed to create/update account: %v", err)
+		http.Error(w, "Unable to create account. Please try again.", http.StatusInternalServerError)
+		return
+	}
+
+	h.mu.Lock()
+	h.currentAccount = account
+	h.mu.Unlock()
+	log.Printf("SUCCESS: Account created/updated: %s (AccountKey: %s)", account.DisplayName, account.AccountKey)
+
 	// Redirect to the main app
+	log.Printf("[DEBUG] Redirecting to /?auth=success")
 	http.Redirect(w, r, "/?auth=success", http.StatusFound)
 }
 
 // GetAuthStatus returns current auth status
 func (h *Handler) GetAuthStatus(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[AUTH-DEBUG] === GetAuthStatus called ===")
+	client, err := h.getEbayClient(r)
+	authenticated := false
+	if err == nil {
+		authenticated = client.IsAuthenticated()
+		log.Printf("[AUTH-DEBUG] client.IsAuthenticated() returned: %v", authenticated)
+	} else {
+		log.Printf("[AUTH-DEBUG] getEbayClient failed: %v", err)
+	}
+
+	configured := h.ebayConfig.ClientID != ""
+	log.Printf("[AUTH-DEBUG] Returning authenticated=%v, configured=%v", authenticated, configured)
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"authenticated": h.ebayClient.IsAuthenticated(),
-		"configured":    h.ebayClient.IsConfigured(),
+		"authenticated": authenticated,
+		"configured":    configured,
 	})
+}
+
+// Logout clears the session and logs the user out
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	if err := h.clearSession(w, r); err != nil {
+		log.Printf("Failed to clear session: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to logout")
+		return
+	}
+
+	// Also clear currentAccount on logout
+	h.mu.Lock()
+	h.currentAccount = nil
+	h.mu.Unlock()
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // GetInventoryItems returns paginated inventory items
 func (h *Handler) GetInventoryItems(w http.ResponseWriter, r *http.Request) {
-	if !h.ebayClient.IsAuthenticated() {
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, "Session error")
+		return
+	}
+
+	if !client.IsAuthenticated() {
 		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
 		return
 	}
@@ -170,7 +536,7 @@ func (h *Handler) GetInventoryItems(w http.ResponseWriter, r *http.Request) {
 		offset = 0
 	}
 
-	items, err := h.ebayClient.GetInventoryItems(r.Context(), limit, offset)
+	items, err := client.GetInventoryItems(r.Context(), limit, offset)
 	if err != nil {
 		log.Printf("GetInventoryItems error: %v", err)
 		errorResponse(w, http.StatusInternalServerError, err.Error())
@@ -181,47 +547,309 @@ func (h *Handler) GetInventoryItems(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetOffers returns paginated offers
+// This endpoint uses the Trading API to fetch traditional eBay listings
 func (h *Handler) GetOffers(w http.ResponseWriter, r *http.Request) {
-	if !h.ebayClient.IsAuthenticated() {
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, "Session error")
+		return
+	}
+
+	if !client.IsAuthenticated() {
 		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
 		return
 	}
 
-	sku := r.URL.Query().Get("sku")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	forceRefresh := r.URL.Query().Get("force") == "true"
 
 	if limit <= 0 || limit > 100 {
-		limit = 25
+		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
 
-	offers, err := h.ebayClient.GetOffers(r.Context(), sku, limit, offset)
-	if err != nil {
-		log.Printf("GetOffers error: %v", err)
-		// Check if it's a SKU validation error (likely empty inventory)
-		if strings.Contains(err.Error(), "invalid value for a SKU") || strings.Contains(err.Error(), "25707") {
-			// Return empty result instead of error
-			jsonResponse(w, http.StatusOK, map[string]interface{}{
-				"offers": []interface{}{},
-				"total":  0,
-				"limit":  limit,
-				"offset": offset,
-			})
-			return
+	// Check if we have cached listings and not forcing refresh
+	h.listingsMutex.RLock()
+	hasCachedListings := len(h.listingsCache) > 0
+	cacheAge := time.Since(h.listingsCacheTime)
+	h.listingsMutex.RUnlock()
+
+	// Cache TTL: 8 hours (only Refresh button or server restart triggers re-fetch)
+	const cacheTTL = 8 * time.Hour
+
+	// Use cache if available, not forcing, and cache is within TTL
+	if hasCachedListings && !forceRefresh && cacheAge < cacheTTL {
+		log.Printf("[CACHE] Returning cached listings (age: %v, total: %d)", cacheAge.Round(time.Second), len(h.listingsCache))
+
+		h.listingsMutex.RLock()
+		total := len(h.listingsCache)
+
+		// Paginate from cache
+		end := offset + limit
+		if end > total {
+			end = total
 		}
-		errorResponse(w, http.StatusInternalServerError, err.Error())
+		var offers []map[string]interface{}
+		if offset < total {
+			offers = h.listingsCache[offset:end]
+		}
+		h.listingsMutex.RUnlock()
+
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"offers": offers,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+			"cached": true,
+		})
 		return
 	}
 
-	jsonResponse(w, http.StatusOK, offers)
+	// Need to fetch from eBay - fetch ALL listings and cache them
+	log.Printf("[CACHE] Fetching all listings from eBay (force=%v, cacheAge=%v)", forceRefresh, cacheAge.Round(time.Second))
+
+	var allOffers []map[string]interface{}
+	pageNumber := 1
+	pageSize := 100 // Max allowed by Trading API
+	totalItems := 0
+
+	for {
+		log.Printf("[CACHE] Fetching page %d from eBay...", pageNumber)
+		items, total, err := client.GetMyeBaySelling(r.Context(), pageNumber, pageSize)
+		if err != nil {
+			log.Printf("GetMyeBaySelling error: %v", err)
+			errorResponse(w, http.StatusInternalServerError, "Failed to fetch listings: "+err.Error())
+			return
+		}
+
+		totalItems = total
+		log.Printf("[CACHE] Page %d: got %d items (total: %d)", pageNumber, len(items), total)
+
+		// Convert to offers format
+		for _, item := range items {
+			offer := map[string]interface{}{
+				"offerId": item.ItemID,
+				"sku":     item.SKU,
+				"title":   item.Title,
+				"pricingSummary": map[string]interface{}{
+					"price": map[string]interface{}{
+						"value":    item.Price,
+						"currency": item.Currency,
+					},
+				},
+			}
+
+			if item.ImageURL != "" {
+				offer["image"] = map[string]interface{}{
+					"imageUrl": item.ImageURL,
+				}
+			}
+			if item.Brand != "" {
+				offer["brand"] = item.Brand
+			}
+			if item.ShippingCost != "" {
+				offer["shippingCost"] = map[string]interface{}{
+					"value":    item.ShippingCost,
+					"currency": item.ShippingCurrency,
+				}
+			}
+
+			allOffers = append(allOffers, offer)
+		}
+
+		// Check if we have all items
+		if len(allOffers) >= totalItems || len(items) == 0 {
+			break
+		}
+		pageNumber++
+	}
+
+	// Update cache
+	h.listingsMutex.Lock()
+	h.listingsCache = allOffers
+	h.listingsCacheTime = time.Now()
+	h.listingsMutex.Unlock()
+
+	log.Printf("[CACHE] Cached %d listings", len(allOffers))
+
+	// Return paginated results
+	total := len(allOffers)
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	var offers []map[string]interface{}
+	if offset < total {
+		offers = allOffers[offset:end]
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"offers": offers,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+		"cached": false,
+	})
+}
+
+// GetEnrichedData returns enriched item data, fetching on-demand using session-based OAuth
+// This implements request-based enrichment with parallel fetching for better performance
+func (h *Handler) GetEnrichedData(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errorResponse(w, http.StatusMethodNotAllowed, "GET required")
+		return
+	}
+
+	// Parse itemIds from query parameters
+	// Frontend sends: ?itemIds=id1,id2,id3
+	itemIDsParam := r.URL.Query().Get("itemIds")
+	if itemIDsParam == "" {
+		errorResponse(w, http.StatusBadRequest, "No itemIds provided")
+		return
+	}
+
+	// Split comma-separated item IDs
+	var itemIDs []string
+	for _, id := range strings.Split(itemIDsParam, ",") {
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" {
+			itemIDs = append(itemIDs, trimmed)
+		}
+	}
+
+	if len(itemIDs) == 0 {
+		errorResponse(w, http.StatusBadRequest, "No valid itemIds provided")
+		return
+	}
+
+	// Get eBay client using session-based auth (same as listings)
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, "Session error")
+		return
+	}
+
+	if !client.IsAuthenticated() {
+		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
+		return
+	}
+
+	// Prepare result map with mutex for concurrent writes
+	result := make(map[string]EnrichedItemData)
+	var resultMutex sync.Mutex
+
+	// Separate items into cached and to-fetch
+	var toFetch []string
+	for _, itemID := range itemIDs {
+		h.enrichmentMutex.RLock()
+		cachedData, exists := h.enrichmentCache[itemID]
+		h.enrichmentMutex.RUnlock()
+
+		if exists && cachedData != nil {
+			resultMutex.Lock()
+			result[itemID] = *cachedData
+			resultMutex.Unlock()
+			log.Printf("[ENRICHMENT] Using cached data for item %s", itemID)
+		} else {
+			toFetch = append(toFetch, itemID)
+		}
+	}
+
+	// Fetch uncached items in parallel (limit concurrency to 20)
+	// eBay Trading API rate limits are typically 5000 calls/day for production
+	if len(toFetch) > 0 {
+		const maxConcurrent = 20
+		sem := make(chan struct{}, maxConcurrent)
+		var wg sync.WaitGroup
+
+		log.Printf("[ENRICHMENT] Fetching %d items in parallel (max %d concurrent)", len(toFetch), maxConcurrent)
+
+		for _, itemID := range toFetch {
+			wg.Add(1)
+			sem <- struct{}{} // Acquire semaphore
+
+			go func(id string) {
+				defer wg.Done()
+				defer func() { <-sem }() // Release semaphore
+
+				// Retry with exponential backoff
+				var enrichedData *EnrichedItemData
+				maxRetries := 3
+				for attempt := 1; attempt <= maxRetries; attempt++ {
+					log.Printf("[ENRICHMENT] Fetching item %s (attempt %d/%d)", id, attempt, maxRetries)
+					ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+					brand, shippingCost, shippingCurrency, coo, images, err := client.GetItem(ctx, id)
+					cancel()
+
+					if err == nil {
+						enrichedData = &EnrichedItemData{
+							ItemID:           id,
+							Brand:            brand,
+							CountryOfOrigin:  coo,
+							ShippingCost:     shippingCost,
+							ShippingCurrency: shippingCurrency,
+							Images:           images,
+							EnrichedAt:       time.Now(),
+						}
+						log.Printf("[ENRICHMENT] Successfully enriched item %s (Brand: %s, COO: %s, Images: %d)",
+							id, brand, coo, len(images))
+						break
+					}
+
+					// Check for rate limiting (HTTP 429) or server errors (5xx)
+					errMsg := err.Error()
+					isRetryable := strings.Contains(errMsg, "429") ||
+						strings.Contains(errMsg, "500") ||
+						strings.Contains(errMsg, "502") ||
+						strings.Contains(errMsg, "503") ||
+						strings.Contains(errMsg, "timeout")
+
+					if !isRetryable || attempt == maxRetries {
+						log.Printf("[ENRICHMENT] Failed to fetch item %s after %d attempts: %v", id, attempt, err)
+						enrichedData = &EnrichedItemData{
+							ItemID:     id,
+							EnrichedAt: time.Now(),
+						}
+						break
+					}
+
+					// Exponential backoff: 1s, 2s, 4s
+					backoff := time.Duration(1<<(attempt-1)) * time.Second
+					log.Printf("[ENRICHMENT] Retrying item %s in %v...", id, backoff)
+					time.Sleep(backoff)
+				}
+
+				// Cache the result
+				h.enrichmentMutex.Lock()
+				h.enrichmentCache[id] = enrichedData
+				h.enrichmentMutex.Unlock()
+
+				// Add to result
+				resultMutex.Lock()
+				result[id] = *enrichedData
+				resultMutex.Unlock()
+			}(itemID)
+		}
+
+		wg.Wait()
+		log.Printf("[ENRICHMENT] Completed fetching %d items", len(toFetch))
+	}
+
+	jsonResponse(w, http.StatusOK, result)
 }
 
 // GetFulfillmentPolicies returns shipping policies
 func (h *Handler) GetFulfillmentPolicies(w http.ResponseWriter, r *http.Request) {
-	if !h.ebayClient.IsAuthenticated() {
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, "Session error")
+		return
+	}
+
+	if !client.IsAuthenticated() {
 		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
 		return
 	}
@@ -231,7 +859,7 @@ func (h *Handler) GetFulfillmentPolicies(w http.ResponseWriter, r *http.Request)
 		marketplaceID = "EBAY_AU" // Default to eBay Australia
 	}
 
-	policies, err := h.ebayClient.GetFulfillmentPolicies(r.Context(), marketplaceID)
+	policies, err := client.GetFulfillmentPolicies(r.Context(), marketplaceID)
 	if err != nil {
 		log.Printf("GetFulfillmentPolicies error: %v", err)
 		errorResponse(w, http.StatusInternalServerError, err.Error())
@@ -313,7 +941,13 @@ type UpdateShippingRequest struct {
 
 // UpdateOfferShipping updates shipping cost overrides
 func (h *Handler) UpdateOfferShipping(w http.ResponseWriter, r *http.Request) {
-	if !h.ebayClient.IsAuthenticated() {
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, "Session error")
+		return
+	}
+
+	if !client.IsAuthenticated() {
 		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
 		return
 	}
@@ -329,7 +963,7 @@ func (h *Handler) UpdateOfferShipping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.ebayClient.UpdateOfferShipping(r.Context(), req.OfferID, req.Overrides); err != nil {
+	if err := client.UpdateOfferShipping(r.Context(), req.OfferID, req.Overrides); err != nil {
 		log.Printf("UpdateOfferShipping error: %v", err)
 		errorResponse(w, http.StatusInternalServerError, err.Error())
 		return
@@ -345,13 +979,19 @@ func (h *Handler) SyncExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.ebayClient.IsAuthenticated() {
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, "Session error")
+		return
+	}
+
+	if !client.IsAuthenticated() {
 		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
 		return
 	}
 
 	if h.currentAccount == nil {
-		errorResponse(w, http.StatusBadRequest, "No account configured. Restart with -store flag.")
+		errorResponse(w, http.StatusBadRequest, "Not connected to an eBay account. Please authenticate first.")
 		return
 	}
 
@@ -362,7 +1002,7 @@ func (h *Handler) SyncExport(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Starting export for account: %s", h.currentAccount.DisplayName)
 
-	err := h.syncService.ExportFromEbay(r.Context(), h.ebayClient, h.currentAccount.ID, marketplaceID)
+	err = h.syncService.ExportFromEbay(r.Context(), client, h.currentAccount.ID, marketplaceID)
 	if err != nil {
 		log.Printf("Export failed: %v", err)
 		errorResponse(w, http.StatusInternalServerError, err.Error())
@@ -393,13 +1033,19 @@ func (h *Handler) SyncImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.ebayClient.IsAuthenticated() {
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, "Session error")
+		return
+	}
+
+	if !client.IsAuthenticated() {
 		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
 		return
 	}
 
 	if h.currentAccount == nil {
-		errorResponse(w, http.StatusBadRequest, "No account configured. Restart with -store flag.")
+		errorResponse(w, http.StatusBadRequest, "Not connected to an eBay account. Please authenticate first.")
 		return
 	}
 
@@ -424,7 +1070,7 @@ func (h *Handler) SyncImport(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Starting import from %s to %s", sourceAccount.DisplayName, h.currentAccount.DisplayName)
 
-	err = h.syncService.ImportToEbay(r.Context(), h.ebayClient, sourceAccount.ID, h.currentAccount.ID)
+	err = h.syncService.ImportToEbay(r.Context(), client, sourceAccount.ID, h.currentAccount.ID)
 	if err != nil {
 		log.Printf("Import failed: %v", err)
 		errorResponse(w, http.StatusInternalServerError, err.Error())
@@ -470,4 +1116,286 @@ func (h *Handler) GetSyncHistory(w http.ResponseWriter, r *http.Request) {
 // Simple state generator (in production, use crypto/rand)
 func generateState() string {
 	return "ebay-helpers-" + strconv.FormatInt(int64(100000+len("state")*12345), 36)
+}
+
+// MarketplaceAccountDeletion handles eBay marketplace account deletion notifications
+// Required for production API credential activation
+// Docs: https://developer.ebay.com/develop/guides-v2/marketplace-user-account-deletion
+func (h *Handler) MarketplaceAccountDeletion(w http.ResponseWriter, r *http.Request) {
+	// Handle GET request for endpoint validation
+	if r.Method == http.MethodGet {
+		h.handleDeletionValidation(w, r)
+		return
+	}
+
+	// Handle POST request for actual deletion notifications
+	if r.Method == http.MethodPost {
+		h.handleDeletionNotification(w, r)
+		return
+	}
+
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+// handleDeletionValidation handles eBay's endpoint validation challenge
+func (h *Handler) handleDeletionValidation(w http.ResponseWriter, r *http.Request) {
+	challengeCode := r.URL.Query().Get("challenge_code")
+	if challengeCode == "" {
+		log.Printf("Deletion validation: missing challenge_code")
+		http.Error(w, "Missing challenge_code parameter", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Deletion validation challenge received: %s", challengeCode)
+
+	// Compute SHA-256 hash: challengeCode + verificationToken + endpoint
+	hashInput := challengeCode + h.verificationToken + h.endpoint
+	hash := sha256.Sum256([]byte(hashInput))
+	challengeResponse := hex.EncodeToString(hash[:])
+
+	log.Printf("Computed challenge response: %s", challengeResponse)
+
+	// Return JSON response with challenge response
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"challengeResponse": challengeResponse,
+	})
+}
+
+// EbayDeletionNotification represents the structure of eBay's deletion notification
+type EbayDeletionNotification struct {
+	Metadata struct {
+		Topic         string `json:"topic"`
+		SchemaVersion string `json:"schemaVersion"`
+	} `json:"metadata"`
+	Notification struct {
+		NotificationID string `json:"notificationId"`
+		EventDate      string `json:"eventDate"` // ISO 8601 format
+		Data           struct {
+			Username  string `json:"username"`
+			UserID    string `json:"userId"`
+			EiasToken string `json:"eiasToken"`
+		} `json:"data"`
+	} `json:"notification"`
+}
+
+// handleDeletionNotification handles actual account deletion notifications
+func (h *Handler) handleDeletionNotification(w http.ResponseWriter, r *http.Request) {
+	// Parse the notification payload
+	var notification EbayDeletionNotification
+	if err := json.NewDecoder(r.Body).Decode(&notification); err != nil {
+		log.Printf("Failed to parse deletion notification: %v", err)
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Received deletion notification for user: %s (ID: %s, Notification: %s)",
+		notification.Notification.Data.Username,
+		notification.Notification.Data.UserID,
+		notification.Notification.NotificationID)
+
+	// Parse event date
+	eventDate, err := time.Parse(time.RFC3339, notification.Notification.EventDate)
+	if err != nil {
+		log.Printf("Failed to parse event date: %v", err)
+		eventDate = time.Now() // Fallback to current time
+	}
+
+	// Convert back to JSON for storage
+	rawPayload, err := json.Marshal(notification)
+	if err != nil {
+		log.Printf("Failed to marshal notification for storage: %v", err)
+		rawPayload = []byte("{}")
+	}
+
+	// Store the notification in database
+	dn := &database.DeletionNotification{
+		NotificationID: notification.Notification.NotificationID,
+		Username:       notification.Notification.Data.Username,
+		UserID:         notification.Notification.Data.UserID,
+		EiasToken:      notification.Notification.Data.EiasToken,
+		EventDate:      eventDate,
+		RawPayload:     string(rawPayload),
+	}
+
+	if err := h.db.CreateDeletionNotification(dn); err != nil {
+		log.Printf("Failed to store deletion notification: %v", err)
+		// Still return success to eBay to avoid retries
+	} else {
+		log.Printf("Stored deletion notification: %s", dn.NotificationID)
+	}
+
+	// NOTE: This application uses memory-only OAuth token storage (tokens lost on restart).
+	// No persistent user credentials are stored, so there is no user data to delete.
+	// The notification is logged for eBay compliance and audit trail purposes.
+	//
+	// If OAuth token persistence is implemented in the future, token deletion logic
+	// must be added here to match on notification.Notification.Data.UserID.
+
+	log.Printf("Notification logged. No persistent user data to delete (memory-only OAuth tokens).")
+
+	// Mark as processed immediately
+	if err := h.db.MarkDeletionNotificationProcessed(dn.NotificationID); err != nil {
+		log.Printf("Failed to mark notification as processed: %v", err)
+	}
+
+	// Respond with 200 OK (or 201/202/204 as per eBay docs)
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetDeletionNotifications returns deletion notifications for admin viewing
+func (h *Handler) GetDeletionNotifications(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+
+	notifications, err := h.db.GetDeletionNotifications(limit)
+	if err != nil {
+		log.Printf("GetDeletionNotifications error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"notifications": notifications,
+		"total":         len(notifications),
+	})
+}
+
+// BatchCalculateRequest holds items for batch calculation
+type BatchCalculateItem struct {
+	ItemID string  `json:"itemId"`
+	Price  float64 `json:"price"`
+}
+
+// BatchCalculateResponse holds calculated data for an item
+type BatchCalculateResponse struct {
+	ItemID         string  `json:"itemId"`
+	ExpectedCOO    string  `json:"expectedCoo"`
+	COOStatus      string  `json:"cooStatus"` // "match", "mismatch", "missing"
+	CalculatedCost float64 `json:"calculatedCost"`
+	Diff           float64 `json:"diff"`
+	DiffStatus     string  `json:"diffStatus"` // "ok" or "bad"
+}
+
+// BatchCalculate calculates postage for multiple items using server-side logic
+// Frontend sends item IDs + prices, backend returns calculated costs
+// This keeps business logic on backend while allowing frontend to display results
+func (h *Handler) BatchCalculate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+
+	var items []BatchCalculateItem
+	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	results := make(map[string]BatchCalculateResponse)
+
+	for _, item := range items {
+		// Get enrichment data from cache (brand, COO, shipping)
+		h.enrichmentMutex.RLock()
+		enriched, exists := h.enrichmentCache[item.ItemID]
+		h.enrichmentMutex.RUnlock()
+
+		if !exists || enriched == nil {
+			continue // Skip items not yet enriched
+		}
+
+		// Get expected COO from brand mapping
+		expectedCOO := calculator.GetCountryOfOrigin(enriched.Brand)
+
+		// Determine COO status
+		var cooStatus string
+		coo := enriched.CountryOfOrigin
+		if coo == "" {
+			cooStatus = "missing"
+			coo = expectedCOO // Use expected for calculation
+		} else if coo == expectedCOO {
+			cooStatus = "match"
+		} else {
+			cooStatus = "mismatch"
+		}
+
+		// Calculate postage using backend calculator
+		result, err := calculator.CalculateUSAShipping(calculator.CalculateUSAShippingParams{
+			ItemValueAUD:      item.Price,
+			WeightBand:        "Medium", // Default - TODO: make configurable
+			BrandName:         enriched.Brand,
+			CountryOfOrigin:   coo,
+			IncludeExtraCover: item.Price > 100,
+			DiscountBand:      3, // Default band 3 - TODO: make configurable
+		})
+
+		if err != nil {
+			log.Printf("[BATCH-CALC] Error calculating item %s: %v", item.ItemID, err)
+			continue
+		}
+
+		// Calculate diff
+		shippingCost := 0.0
+		if enriched.ShippingCost != "" {
+			fmt.Sscanf(enriched.ShippingCost, "%f", &shippingCost)
+		}
+		diff := shippingCost - result.Total
+
+		// Determine diff status (5% threshold)
+		var diffStatus string
+		threshold := result.Total * 1.05
+		if shippingCost >= threshold {
+			diffStatus = "ok"
+		} else {
+			diffStatus = "bad"
+		}
+
+		results[item.ItemID] = BatchCalculateResponse{
+			ItemID:         item.ItemID,
+			ExpectedCOO:    expectedCOO,
+			COOStatus:      cooStatus,
+			CalculatedCost: result.Total,
+			Diff:           diff,
+			DiffStatus:     diffStatus,
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, results)
+}
+
+// GetListings returns enriched listings from database with server-side sort/filter/pagination
+// This is the proper backend-driven approach - frontend just renders what API returns
+func (h *Handler) GetListings(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	query := database.ListingsQuery{
+		Search:    r.URL.Query().Get("search"),
+		SortBy:    r.URL.Query().Get("sort"),
+		SortOrder: r.URL.Query().Get("order"),
+	}
+
+	// Parse page number
+	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
+		if page, err := strconv.Atoi(pageStr); err == nil {
+			query.Page = page
+		}
+	}
+
+	// Parse page size
+	query.PageSize = 50 // Default
+	if sizeStr := r.URL.Query().Get("pageSize"); sizeStr != "" {
+		if size, err := strconv.Atoi(sizeStr); err == nil && size > 0 && size <= 100 {
+			query.PageSize = size
+		}
+	}
+
+	// Query database
+	result, err := h.db.GetListings(query)
+	if err != nil {
+		log.Printf("GetListings error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, result)
 }

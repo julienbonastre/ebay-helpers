@@ -1,0 +1,1 @@
+- do not ask permission to rebuild and restart the app after updates have been performed and tested in the code base
