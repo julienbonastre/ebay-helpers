@@ -762,6 +762,107 @@ type GetItemResponse struct {
 	} `xml:"Errors>Error"`
 }
 
+// BrowseAPIItemResponse represents the response from Browse API getItem
+type BrowseAPIItemResponse struct {
+	ItemID           string `json:"itemId"`
+	Title            string `json:"title"`
+	LocalizedAspects []struct {
+		Type  string `json:"type"`
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"localizedAspects"`
+	ShortDescription string `json:"shortDescription"`
+}
+
+// GetItemFromBrowseAPI fetches item details using the Browse API (REST/JSON)
+// This is used as a fallback to get Country of Origin when Trading API doesn't return it
+func (c *Client) GetItemFromBrowseAPI(ctx context.Context, itemID string) (coo string, err error) {
+	if !c.IsAuthenticated() {
+		return "", fmt.Errorf("client not authenticated")
+	}
+
+	// Ensure token is fresh
+	src := c.oauthConfig.TokenSource(ctx, c.token)
+	token, err := src.Token()
+	if err != nil {
+		return "", fmt.Errorf("failed to get valid token: %w", err)
+	}
+	c.token = token
+
+	// Browse API uses the legacy item ID format: v1|{itemId}|0
+	browseItemID := fmt.Sprintf("v1|%s|0", itemID)
+
+	// Build URL for Browse API - uses api.ebay.com (same base as Sell APIs)
+	browseURL := c.baseURL + "/buy/browse/v1/item/" + browseItemID
+
+	log.Printf("[BROWSE-API-DEBUG] Fetching item %s from Browse API: %s", itemID, browseURL)
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "GET", browseURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Set headers for Browse API (RESTful, uses Bearer token)
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-EBAY-C-MARKETPLACE-ID", "EBAY_AU")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		log.Printf("[BROWSE-API-ERROR] Request failed for item %s: %v", itemID, err)
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	log.Printf("[BROWSE-API-DEBUG] Response status: %d", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[BROWSE-API-ERROR] Non-200 response for item %s: %s", itemID, string(body))
+		return "", fmt.Errorf("Browse API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse JSON response
+	var browseResp BrowseAPIItemResponse
+	if err := json.Unmarshal(body, &browseResp); err != nil {
+		log.Printf("[BROWSE-API-ERROR] Failed to parse JSON for item %s: %v", itemID, err)
+		return "", fmt.Errorf("failed to parse Browse API response: %w", err)
+	}
+
+	// Extract Country of Origin from localizedAspects
+	// Look for various field names that eBay uses for COO
+	for _, aspect := range browseResp.LocalizedAspects {
+		aspectNameLower := strings.ToLower(strings.TrimSpace(aspect.Name))
+
+		if aspectNameLower == "country of origin" ||
+			aspectNameLower == "country/region of manufacture" ||
+			aspectNameLower == "country of manufacture" ||
+			aspectNameLower == "country/region of origin" ||
+			aspectNameLower == "materials sourced from" ||
+			strings.Contains(aspectNameLower, "country") && strings.Contains(aspectNameLower, "origin") ||
+			strings.Contains(aspectNameLower, "country") && strings.Contains(aspectNameLower, "manufacture") {
+			coo = aspect.Value
+			log.Printf("[BROWSE-API-DEBUG] Item %s: Found COO = %s (aspect: %s)", itemID, coo, aspect.Name)
+			return coo, nil
+		}
+	}
+
+	// Log all aspects if COO not found (for debugging)
+	var allAspects []string
+	for _, aspect := range browseResp.LocalizedAspects {
+		allAspects = append(allAspects, aspect.Name)
+	}
+	log.Printf("[BROWSE-API-DEBUG] Item %s: COO not found in localizedAspects. All aspects: %v", itemID, allAspects)
+
+	return "", nil
+}
+
 // GetItem fetches full details for a single item by ItemID
 func (c *Client) GetItem(ctx context.Context, itemID string) (brand, shippingCost, shippingCurrency, coo string, images []string, err error) {
 	if !c.IsAuthenticated() {
@@ -811,6 +912,11 @@ func (c *Client) GetItem(ctx context.Context, itemID string) (brand, shippingCos
 		return "", "", "", "", nil, err
 	}
 
+	// Debug: Log raw XML for specific items to investigate COO issues
+	if itemID == "205968464842" || itemID == "205995527662" || itemID == "205972787815" {
+		log.Printf("[GET-ITEM-RAW-XML] Item %s raw response:\n%s", itemID, string(body))
+	}
+
 	// Parse XML response
 	var xmlResp GetItemResponse
 	if err := xml.Unmarshal(body, &xmlResp); err != nil {
@@ -833,24 +939,42 @@ func (c *Client) GetItem(ctx context.Context, itemID string) (brand, shippingCos
 	var allSpecNames []string
 	for _, spec := range xmlResp.Item.ItemSpecifics.NameValueList {
 		allSpecNames = append(allSpecNames, spec.Name)
+		specNameLower := strings.ToLower(strings.TrimSpace(spec.Name))
 
 		if spec.Name == "Brand" {
 			brand = spec.Value
 			log.Printf("[GET-ITEM-DEBUG] Item %s: Brand = %s", itemID, brand)
 		}
 		// Look for Country of Origin (can be stored as various names in eBay)
+		// Use case-insensitive matching to catch variations
 		// Common field names: "Country/Region of Manufacture", "Country of Manufacture", "Country of Origin"
-		if spec.Name == "Country/Region of Manufacture" ||
-		   spec.Name == "Country of Manufacture" ||
-		   spec.Name == "Country of Origin" ||
-		   spec.Name == "Country/Region of Origin" {
+		// eBay also uses "Materials sourced from" for COO in some listings
+		if specNameLower == "country/region of manufacture" ||
+		   specNameLower == "country of manufacture" ||
+		   specNameLower == "country of origin" ||
+		   specNameLower == "country/region of origin" ||
+		   specNameLower == "materials sourced from" ||
+		   strings.Contains(specNameLower, "country") && strings.Contains(specNameLower, "origin") ||
+		   strings.Contains(specNameLower, "country") && strings.Contains(specNameLower, "manufacture") {
 			coo = spec.Value
 			log.Printf("[GET-ITEM-DEBUG] Item %s: Country of Origin = %s (field: %s)", itemID, coo, spec.Name)
 		}
 	}
-	// If COO not found, log all spec names to help debug
+	// If COO not found from Trading API, try Browse API as fallback
+	// Browse API returns localizedAspects which may include COO data that Trading API doesn't return
 	if coo == "" {
-		log.Printf("[GET-ITEM-DEBUG] Item %s: COO NOT FOUND. All ItemSpecifics: %v", itemID, allSpecNames)
+		log.Printf("[GET-ITEM-DEBUG] Item %s: COO NOT FOUND in Trading API. Trying Browse API fallback...", itemID)
+		log.Printf("[GET-ITEM-DEBUG] Item %s: All ItemSpecifics from Trading API: %v", itemID, allSpecNames)
+
+		browseCOO, browseErr := c.GetItemFromBrowseAPI(ctx, itemID)
+		if browseErr != nil {
+			log.Printf("[GET-ITEM-WARN] Item %s: Browse API fallback failed: %v", itemID, browseErr)
+		} else if browseCOO != "" {
+			coo = browseCOO
+			log.Printf("[GET-ITEM-DEBUG] Item %s: COO found via Browse API fallback: %s", itemID, coo)
+		} else {
+			log.Printf("[GET-ITEM-WARN] Item %s: COO not found in either Trading API or Browse API", itemID)
+		}
 	}
 
 	// Extract US international shipping cost

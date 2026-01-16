@@ -686,37 +686,53 @@ function updateEnrichmentProgress() {
     });
 }
 
-// Enrich ALL items in batches of 40 (backend processes up to 20 concurrently)
+// Enrich ALL items in batches of 60, with 2 batches in parallel
+// Backend processes up to 30 items concurrently per request
 async function enrichAllItemsInBatches() {
-    const batchSize = 40;
+    const batchSize = 60;
+    const parallelBatches = 2; // Send 2 batches simultaneously
     const itemIds = allListings.map(l => l.offerId);
 
-    console.log(`[ENRICH-ALL] Starting enrichment of ${itemIds.length} items in batches of ${batchSize}`);
+    console.log(`[ENRICH-ALL] Starting enrichment of ${itemIds.length} items (batch=${batchSize}, parallel=${parallelBatches})`);
     updateEnrichmentProgress();
 
-    for (let i = 0; i < itemIds.length; i += batchSize) {
-        const batch = itemIds.slice(i, i + batchSize);
+    // Process a single batch and return results
+    async function processBatch(batch, batchNum, totalBatches) {
         const batchIds = batch.join(',');
+        console.log(`[ENRICH-ALL] Batch ${batchNum}/${totalBatches}: ${batch.length} items`);
 
-        try {
-            console.log(`[ENRICH-ALL] Batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(itemIds.length/batchSize)}: ${batch.length} items`);
+        const res = await secureFetch(`/api/offers/enriched?itemIds=${encodeURIComponent(batchIds)}`);
+        const data = await res.json();
 
-            const res = await secureFetch(`/api/offers/enriched?itemIds=${encodeURIComponent(batchIds)}`);
-            const data = await res.json();
-
-            // Update cache for each item in batch
-            for (const [itemId, enrichedData] of Object.entries(data)) {
-                const enrichedWithId = { ...enrichedData, itemId };
-                enrichedDataCache.set(itemId, enrichedWithId);
-                updateTableRow(enrichedWithId);
-            }
-
-            console.log(`[ENRICH-ALL] Enriched ${Object.keys(data).length} items`);
-            updateEnrichmentProgress();
-
-        } catch (err) {
-            console.error(`[ENRICH-ALL] Batch failed:`, err);
+        // Update cache for each item in batch
+        for (const [itemId, enrichedData] of Object.entries(data)) {
+            const enrichedWithId = { ...enrichedData, itemId };
+            enrichedDataCache.set(itemId, enrichedWithId);
+            updateTableRow(enrichedWithId);
         }
+
+        console.log(`[ENRICH-ALL] Batch ${batchNum} complete: ${Object.keys(data).length} items`);
+        updateEnrichmentProgress();
+        return Object.keys(data).length;
+    }
+
+    // Split into batches
+    const batches = [];
+    for (let i = 0; i < itemIds.length; i += batchSize) {
+        batches.push(itemIds.slice(i, i + batchSize));
+    }
+    const totalBatches = batches.length;
+
+    // Process batches in parallel groups
+    for (let i = 0; i < batches.length; i += parallelBatches) {
+        const batchGroup = batches.slice(i, i + parallelBatches);
+        const promises = batchGroup.map((batch, idx) =>
+            processBatch(batch, i + idx + 1, totalBatches).catch(err => {
+                console.error(`[ENRICH-ALL] Batch ${i + idx + 1} failed:`, err);
+                return 0;
+            })
+        );
+        await Promise.all(promises);
     }
 
     console.log(`[ENRICH-ALL] Complete: ${enrichedDataCache.size} items enriched`);
@@ -801,14 +817,34 @@ async function renderListings() {
         // Get enriched data from cache (if available)
         const enriched = enrichedDataCache.get(offer.offerId);
 
-        // Brand: show spinner if enrichment hasn't loaded yet
+        // Brand: show spinner if enrichment hasn't loaded yet, then validate against title
         let brand = offer.brand || '-';
         let brandDisplay = brand;
+        let brandClass = '';
+
         if (!enriched && brand === '-') {
+            // Still loading - show spinner
             brandDisplay = '<div class="spinner-inline"></div>';
         } else if (enriched?.brand) {
             brand = enriched.brand;
-            brandDisplay = brand;
+            // Validate: Brand must be present AND appear in title
+            if (!brand || brand === '-' || brand.trim() === '') {
+                // Brand is missing
+                brandClass = 'brand-missing';
+                brandDisplay = '<strong>[MISSING]</strong>';
+            } else if (!title.toLowerCase().includes(brand.toLowerCase())) {
+                // Brand is set but NOT in title - mismatch
+                brandClass = 'brand-mismatch';
+                brandDisplay = `${brand}<br><strong>[NOT IN TITLE]</strong>`;
+            } else {
+                // Brand is set AND in title - all good
+                brandClass = 'brand-match';
+                brandDisplay = brand;
+            }
+        } else if (enriched && (!enriched.brand || enriched.brand === '-' || enriched.brand.trim() === '')) {
+            // Enrichment loaded but no brand found
+            brandClass = 'brand-missing';
+            brandDisplay = '<strong>[MISSING]</strong>';
         }
 
         // COO: show spinner if enrichment hasn't loaded yet, otherwise show COO with validation
@@ -883,7 +919,7 @@ async function renderListings() {
                 <td><img src="${imageUrl}" class="thumbnail" alt="${title}" onclick="openCarousel('${offer.offerId}')" onerror="this.src='https://via.placeholder.com/50'"></td>
                 <td class="title-cell"><a href="${listingUrl}" target="_blank" rel="noopener noreferrer" class="title-link">${title}</a></td>
                 <td class="price">$${parseFloat(price).toFixed(2)}</td>
-                <td class="brand-cell" data-item-id="${offer.offerId}">${brandDisplay}</td>
+                <td class="brand-cell ${brandClass}" data-item-id="${offer.offerId}">${brandDisplay}</td>
                 <td class="coo-cell ${cooClass}" data-item-id="${offer.offerId}">${cooDisplay}</td>
                 <td>Medium</td>
                 <td class="shipping-cell" data-item-id="${offer.offerId}">${currentUSPostage}</td>
@@ -1354,12 +1390,33 @@ function updateTableRow(enrichedData) {
         console.log('[CAROUSEL-DEBUG] Stored', images.length, 'images for item:', itemId);
     }
 
-    // Update Brand cell
-    if (brand) {
-        const brandCell = document.querySelector(`.brand-cell[data-item-id="${itemId}"]`);
-        if (brandCell && (brandCell.textContent === '-' || brandCell.innerHTML.includes('spinner-inline'))) {
-            brandCell.textContent = brand;
+    // Update Brand cell with validation
+    const brandCell = document.querySelector(`.brand-cell[data-item-id="${itemId}"]`);
+    if (brandCell) {
+        // Get the listing's title for brand validation
+        const offer = allListings.find(o => o.offerId === itemId);
+        const title = offer?.title || '';
+
+        let brandClass = '';
+        let brandDisplay = '';
+
+        if (!brand || brand === '-' || brand.trim() === '') {
+            // Brand is missing
+            brandClass = 'brand-missing';
+            brandDisplay = '<strong>[MISSING]</strong>';
+        } else if (!title.toLowerCase().includes(brand.toLowerCase())) {
+            // Brand is set but NOT in title - mismatch
+            brandClass = 'brand-mismatch';
+            brandDisplay = `${brand}<br><strong>[NOT IN TITLE]</strong>`;
+        } else {
+            // Brand is set AND in title - all good
+            brandClass = 'brand-match';
+            brandDisplay = brand;
         }
+
+        brandCell.innerHTML = brandDisplay;
+        brandCell.className = `brand-cell ${brandClass}`;
+        brandCell.setAttribute('data-item-id', itemId);
     }
 
     // Update COO cell
