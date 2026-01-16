@@ -307,7 +307,7 @@
         }
         .theme-toggle:hover { background: var(--text-muted); }
 
-        /* Image carousel modal */
+        /* Modal backdrop */
         .modal {
             display: none;
             position: fixed;
@@ -316,10 +316,11 @@
             top: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.35);
-            backdrop-filter: blur(5px);
-            -webkit-backdrop-filter: blur(5px);
+            background-color: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             animation: fadeIn 0.3s;
+            cursor: pointer;
         }
         .modal.active {
             display: flex;
@@ -343,6 +344,7 @@
             padding: 2rem;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
             animation: slideIn 0.3s ease-out;
+            cursor: default;
         }
         @keyframes slideIn {
             from {
@@ -776,8 +778,8 @@
     </div>
 
     <!-- Tariff Edit Modal -->
-    <div id="tariffModal" class="modal">
-        <div class="modal-content" style="max-width: 500px; flex-direction: column;">
+    <div id="tariffModal" class="modal" onclick="closeTariffModal()">
+        <div class="modal-content" style="max-width: 500px; flex-direction: column;" onclick="event.stopPropagation()">
             <h2 id="tariffModalTitle">Add Tariff Country</h2>
             <form id="tariffForm" onsubmit="saveTariff(event)">
                 <input type="hidden" id="tariffId" value="">
@@ -802,8 +804,8 @@
     </div>
 
     <!-- Brand Edit Modal -->
-    <div id="brandModal" class="modal">
-        <div class="modal-content" style="max-width: 500px; flex-direction: column;">
+    <div id="brandModal" class="modal" onclick="closeBrandModal()">
+        <div class="modal-content" style="max-width: 500px; flex-direction: column;" onclick="event.stopPropagation()">
             <h2 id="brandModalTitle">Add Brand</h2>
             <form id="brandForm" onsubmit="saveBrand(event)">
                 <input type="hidden" id="brandId" value="">
