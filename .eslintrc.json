@@ -1,0 +1,39 @@
+{
+  "env": {
+    "browser": true,
+    "es2021": true
+  },
+  "extends": "eslint:recommended",
+  "plugins": ["no-unsanitized"],
+  "parserOptions": {
+    "ecmaVersion": 2021,
+    "sourceType": "script"
+  },
+  "rules": {
+    "no-unsanitized/method": "error",
+    "no-unsanitized/property": "error",
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-func": "error",
+    "no-script-url": "error",
+    "no-inline-comments": "off",
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }]
+  },
+  "globals": {
+    "escapeHtml": "readonly",
+    "showToast": "readonly",
+    "showSuccess": "readonly",
+    "showError": "readonly",
+    "showWarning": "readonly",
+    "showInfo": "readonly",
+    "showConfirm": "readonly",
+    "closeConfirm": "readonly",
+    "handleSessionExpiry": "readonly",
+    "secureFetch": "readonly",
+    "checkAuthStatus": "readonly",
+    "loadCurrentAccount": "readonly",
+    "loadReferenceData": "readonly",
+    "isMobile": "readonly",
+    "hideMobileUnsupportedTabs": "readonly"
+  }
+}
