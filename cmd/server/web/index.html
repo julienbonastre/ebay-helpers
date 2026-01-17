@@ -490,6 +490,177 @@
             opacity: 0.8;
             transition: opacity 0.2s;
         }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            pointer-events: none;
+        }
+        .toast {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem 1.25rem;
+            min-width: 300px;
+            max-width: 420px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            pointer-events: auto;
+            animation: slideInRight 0.3s ease-out;
+        }
+        .toast.removing {
+            animation: slideOutRight 0.3s ease-out forwards;
+        }
+        .toast-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+        .toast-content {
+            flex: 1;
+            color: var(--text);
+            font-size: 0.925rem;
+            line-height: 1.4;
+        }
+        .toast-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.25rem;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.25rem;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .toast-close:hover {
+            background: var(--border);
+            color: var(--text);
+        }
+        .toast-success {
+            border-left: 4px solid var(--success);
+        }
+        .toast-success .toast-icon {
+            color: var(--success);
+        }
+        .toast-error {
+            border-left: 4px solid var(--danger);
+        }
+        .toast-error .toast-icon {
+            color: var(--danger);
+        }
+        .toast-warning {
+            border-left: 4px solid var(--warning);
+        }
+        .toast-warning .toast-icon {
+            color: var(--warning);
+        }
+        .toast-info {
+            border-left: 4px solid var(--primary);
+        }
+        .toast-info .toast-icon {
+            color: var(--primary);
+        }
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(100px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        @keyframes slideOutRight {
+            from {
+                opacity: 1;
+                transform: translateX(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateX(100px);
+            }
+        }
+
+        /* Confirmation Modal */
+        .confirm-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.2s ease-out;
+        }
+        .confirm-overlay.active {
+            display: flex;
+        }
+        .confirm-dialog {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            max-width: 480px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            animation: scaleIn 0.2s ease-out;
+        }
+        .confirm-header {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .confirm-icon {
+            font-size: 1.75rem;
+        }
+        .confirm-icon-warning {
+            color: var(--warning);
+        }
+        .confirm-icon-danger {
+            color: var(--danger);
+        }
+        .confirm-message {
+            color: var(--text-muted);
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        .confirm-actions {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: flex-end;
+        }
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
     </style>
 </head>
 <body>
@@ -856,6 +1027,26 @@
                     <button type="button" class="btn" onclick="closeBrandModal()">Cancel</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Toast notification container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Confirmation modal -->
+    <div class="confirm-overlay" id="confirmOverlay">
+        <div class="confirm-dialog" onclick="event.stopPropagation()">
+            <div class="confirm-header">
+                <span class="confirm-icon" id="confirmIcon">⚠️</span>
+                <span id="confirmTitle">Confirm Action</span>
+            </div>
+            <div class="confirm-message" id="confirmMessage">
+                Are you sure you want to proceed?
+            </div>
+            <div class="confirm-actions">
+                <button class="btn" onclick="closeConfirm(false)">Cancel</button>
+                <button class="btn btn-primary" id="confirmButton" onclick="closeConfirm(true)">Confirm</button>
+            </div>
         </div>
     </div>
 
