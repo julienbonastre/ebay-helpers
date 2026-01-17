@@ -143,9 +143,14 @@ func main() {
 	// Calculator
 	mux.HandleFunc("/api/calculate", h.CalculateShipping)
 	mux.HandleFunc("/api/calculate/batch", h.BatchCalculate) // Server-side batch calculation
+	mux.HandleFunc("/api/calculate/all-zones", h.CalculateAllZones) // Multi-zone calculation
 	mux.HandleFunc("/api/brands", h.GetBrands)
 	mux.HandleFunc("/api/weight-bands", h.GetWeightBands)
 	mux.HandleFunc("/api/tariff-countries", h.GetTariffCountries)
+
+	// Settings
+	mux.HandleFunc("/api/settings", h.GetAllSettings)
+	mux.HandleFunc("/api/settings/", h.UpdateSetting) // Handles /api/settings/:key
 
 	// Reference Data CRUD
 	mux.HandleFunc("/api/reference/tariffs/", h.ReferenceTariffByID) // PUT/DELETE /api/reference/tariffs/:id
