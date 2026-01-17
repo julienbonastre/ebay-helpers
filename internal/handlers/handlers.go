@@ -1654,6 +1654,61 @@ func (h *Handler) BatchCalculate(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, results)
 }
 
+// GetAllSettings returns all application settings
+func (h *Handler) GetAllSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := h.db.GetAllSettings()
+	if err != nil {
+		log.Printf("GetAllSettings error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"settings": settings,
+		"total":    len(settings),
+	})
+}
+
+// UpdateSettingRequest is the request body for updating a setting
+type UpdateSettingRequest struct {
+	Value string `json:"value"`
+}
+
+// UpdateSetting updates a single setting value
+func (h *Handler) UpdateSetting(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		errorResponse(w, http.StatusMethodNotAllowed, "PUT required")
+		return
+	}
+
+	// Extract key from URL path
+	// URL format: /api/settings/:key
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 3 {
+		errorResponse(w, http.StatusBadRequest, "Missing setting key")
+		return
+	}
+	key := pathParts[2]
+
+	var req UpdateSettingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := h.db.UpdateSetting(key, req.Value); err != nil {
+		log.Printf("UpdateSetting error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"status":  "updated",
+		"key":     key,
+		"value":   req.Value,
+	})
+}
+
 // GetListings returns enriched listings from database with server-side sort/filter/pagination
 // This is the proper backend-driven approach - frontend just renders what API returns
 func (h *Handler) GetListings(w http.ResponseWriter, r *http.Request) {

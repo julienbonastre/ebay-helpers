@@ -519,6 +519,7 @@
             <div class="tab" data-tab="calculator">Calculator</div>
             <div class="tab" data-tab="sync">Sync</div>
             <div class="tab" data-tab="reference">Reference Data</div>
+            <div class="tab" data-tab="settings">Settings</div>
         </div>
 
         <!-- Calculator Tab -->
@@ -786,6 +787,45 @@
                         <thead><tr><th>Band</th><th>Weight Range</th><th>Base Price (AUD)</th></tr></thead>
                         <tbody></tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-content" id="settings">
+            <div class="card">
+                <div class="card-header"><h2>AusPost Configuration</h2></div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label for="settingsAuspostTier">Current Savings Tier (0-5)</label>
+                        <select id="settingsAuspostTier" class="form-control">
+                            <option value="0">Band 0 (Base - No discount)</option>
+                            <option value="1">Band 1 (5% off)</option>
+                            <option value="2">Band 2 (15% off)</option>
+                            <option value="3">Band 3 (20% off)</option>
+                            <option value="4">Band 4 (25% off)</option>
+                            <option value="5">Band 5 (30% off)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="settingsAuspostApiEnabled" disabled>
+                            Use AusPost API (Coming Soon)
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="settingsAuspostApiKey">API Key</label>
+                        <input type="text" id="settingsAuspostApiKey" placeholder="Enter AusPost API key" disabled>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="settingsAuspostApiSecret">API Secret</label>
+                        <input type="password" id="settingsAuspostApiSecret" placeholder="Enter AusPost API secret" disabled>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
                 </div>
             </div>
         </div>
