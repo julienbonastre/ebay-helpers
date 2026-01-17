@@ -383,8 +383,8 @@ function populateReferenceTables() {
             <td>${(t.tariffRate * 100).toFixed(1)}%</td>
             <td>${t.notes || ''}</td>
             <td>
-                <button class="btn btn-sm" onclick="editTariff(${t.id})">Edit</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteTariff(${t.id})">Delete</button>
+                <button class="btn-icon btn-edit" onclick="editTariff(${t.id})" title="Edit">✏️</button>
+                <button class="btn-icon btn-delete" onclick="deleteTariff(${t.id})" title="Delete">🗑️</button>
             </td>
         </tr>`
     ).join('');
@@ -399,8 +399,8 @@ function populateReferenceTables() {
             <td>${tariff ? (tariff.tariffRate * 100).toFixed(1) + '%' : '-'}</td>
             <td>${b.notes || ''}</td>
             <td>
-                <button class="btn btn-sm" onclick="editBrand(${b.id})">Edit</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteBrand(${b.id})">Delete</button>
+                <button class="btn-icon btn-edit" onclick="editBrand(${b.id})" title="Edit">✏️</button>
+                <button class="btn-icon btn-delete" onclick="deleteBrand(${b.id})" title="Delete">🗑️</button>
             </td>
         </tr>`;
     }).join('');
