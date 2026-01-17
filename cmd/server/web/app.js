@@ -678,10 +678,10 @@ function displayCalculationResult(result) {
 function renderDesktopZoneResults(result, breakdownEl, warningBox) {
     let html = '';
 
-    // Add COO info at the top
+    // Add COO info at the top - XSS FIX: Escape countryOfOrigin
     if (result.zones.length > 0) {
         html += `<div style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; color: var(--text-muted);">
-            <strong>Country of Origin:</strong> ${result.zones[0].inputs.countryOfOrigin}
+            <strong>Country of Origin:</strong> ${escapeHtml(result.zones[0].inputs.countryOfOrigin)}
         </div>`;
     }
 
@@ -695,10 +695,10 @@ function renderDesktopZoneResults(result, breakdownEl, warningBox) {
         // Use consistent aqua/blue colour for all totals
         const totalColor = '#06b6d4'; // aqua/cyan
 
-        // Zone header with warning icon for tariff zones
+        // Zone header with warning icon for tariff zones - XSS FIX: Escape zoneName
         const zoneHeader = hasTariffs
-            ? `<strong>${zone.zoneName}</strong> ⚠️ <span style="color: var(--warning);">(Tariffs Apply)</span>`
-            : `<strong>${zone.zoneName}</strong>`;
+            ? `<strong>${escapeHtml(zone.zoneName)}</strong> ⚠️ <span style="color: var(--warning);">(Tariffs Apply)</span>`
+            : `<strong>${escapeHtml(zone.zoneName)}</strong>`;
 
         html += `
             <div style="border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; background: var(--card);">
@@ -736,10 +736,10 @@ function renderDesktopZoneResults(result, breakdownEl, warningBox) {
 function renderMobileZoneResults(result, breakdownEl, warningBox) {
     let html = '';
 
-    // Add COO info at the top
+    // Add COO info at the top - XSS FIX: Escape countryOfOrigin
     if (result.zones.length > 0) {
         html += `<div style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; color: var(--text-muted);">
-            <strong>COO:</strong> ${result.zones[0].inputs.countryOfOrigin}
+            <strong>COO:</strong> ${escapeHtml(result.zones[0].inputs.countryOfOrigin)}
         </div>`;
     }
 
@@ -753,7 +753,8 @@ function renderMobileZoneResults(result, breakdownEl, warningBox) {
 
         // Zone header text
         const warningIcon = hasTariffs ? ' ⚠️' : '';
-        const zoneName = zone.zoneName;
+        // XSS FIX: Escape zoneName before rendering
+        const zoneName = escapeHtml(zone.zoneName);
 
         html += `
             <div class="zone-card" data-zone-index="${index}">
@@ -2066,10 +2067,23 @@ function openAddBrandModal() {
     document.getElementById('brandName').value = '';
     document.getElementById('brandNotes').value = '';
 
-    // Populate COO dropdown with current tariff countries
+    // Populate COO dropdown with current tariff countries - XSS FIX: Use programmatic DOM creation
     const select = document.getElementById('brandCOO');
-    select.innerHTML = '<option value="">Select Country</option>' +
-        window.dbTariffs.map(t => `<option value="${t.countryName}">${t.countryName}</option>`).join('');
+    select.innerHTML = ''; // Clear existing options
+
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select Country';
+    select.appendChild(defaultOption);
+
+    // Add tariff country options safely
+    window.dbTariffs.forEach(t => {
+        const option = document.createElement('option');
+        option.value = t.countryName;
+        option.textContent = t.countryName; // textContent is safe - auto-escapes
+        select.appendChild(option);
+    });
 
     const modal = document.getElementById('brandModal');
     modal.classList.add('active');
@@ -2086,10 +2100,26 @@ function editBrand(id) {
     document.getElementById('brandName').value = brand.brandName;
     document.getElementById('brandNotes').value = brand.notes || '';
 
-    // Populate COO dropdown
+    // Populate COO dropdown - XSS FIX: Use programmatic DOM creation
     const select = document.getElementById('brandCOO');
-    select.innerHTML = '<option value="">Select Country</option>' +
-        window.dbTariffs.map(t => `<option value="${t.countryName}" ${t.countryName === brand.primaryCoo ? 'selected' : ''}>${t.countryName}</option>`).join('');
+    select.innerHTML = ''; // Clear existing options
+
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select Country';
+    select.appendChild(defaultOption);
+
+    // Add tariff country options safely
+    window.dbTariffs.forEach(t => {
+        const option = document.createElement('option');
+        option.value = t.countryName;
+        option.textContent = t.countryName; // textContent is safe - auto-escapes
+        if (t.countryName === brand.primaryCoo) {
+            option.selected = true;
+        }
+        select.appendChild(option);
+    });
 
     const modal = document.getElementById('brandModal');
     modal.classList.add('active');
