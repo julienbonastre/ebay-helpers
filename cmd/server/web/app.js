@@ -90,6 +90,7 @@ function showInfo(message, duration) {
 // ============================================================
 
 let confirmResolve = null;
+let currentEscapeHandler = null;
 
 function showConfirm(message, options = {}) {
     const {
@@ -132,9 +133,9 @@ function showConfirm(message, options = {}) {
         const handleEscape = (e) => {
             if (e.key === 'Escape') {
                 closeConfirm(false);
-                document.removeEventListener('keydown', handleEscape);
             }
         };
+        currentEscapeHandler = handleEscape;
         document.addEventListener('keydown', handleEscape);
     });
 }
@@ -142,6 +143,12 @@ function showConfirm(message, options = {}) {
 function closeConfirm(result) {
     const overlay = document.getElementById('confirmOverlay');
     overlay.classList.remove('active');
+
+    // Remove the escape handler if it exists
+    if (currentEscapeHandler) {
+        document.removeEventListener('keydown', currentEscapeHandler);
+        currentEscapeHandler = null;
+    }
 
     if (confirmResolve) {
         confirmResolve(result);
