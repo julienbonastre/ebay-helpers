@@ -148,6 +148,10 @@ func main() {
 	mux.HandleFunc("/api/weight-bands", h.GetWeightBands)
 	mux.HandleFunc("/api/tariff-countries", h.GetTariffCountries)
 
+	// Settings
+	mux.HandleFunc("/api/settings", h.GetAllSettings)
+	mux.HandleFunc("/api/settings/", h.UpdateSetting) // Handles /api/settings/:key
+
 	// Reference Data CRUD
 	mux.HandleFunc("/api/reference/tariffs/", h.ReferenceTariffByID) // PUT/DELETE /api/reference/tariffs/:id
 	mux.HandleFunc("/api/reference/tariffs", h.ReferenceTariffs)     // GET/POST /api/reference/tariffs
