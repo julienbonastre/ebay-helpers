@@ -63,17 +63,9 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
-  dependency-review:
-    name: Dependency Review
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: high
+  # Dependency Review disabled - requires GitHub Advanced Security (GHAS)
+  # which is only available for public repos or Enterprise with GHAS license.
+  # For free private repos, use Dependabot alerts instead (enabled in repo settings).
 
   codeql:
     name: CodeQL Analysis
