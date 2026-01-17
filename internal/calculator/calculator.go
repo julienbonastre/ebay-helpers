@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
 
 // ShippingResult holds the complete calculation breakdown
@@ -260,4 +261,115 @@ func GetTariffCountries() []TariffCountryInfo {
 // round2 rounds to 2 decimal places
 func round2(val float64) float64 {
 	return math.Round(val*100) / 100
+}
+
+// ZoneShippingResult holds calculation results for a single zone
+type ZoneShippingResult struct {
+	ZoneID      string            `json:"zoneId"`      // e.g., "1-New Zealand"
+	ZoneName    string            `json:"zoneName"`    // e.g., "New Zealand"
+	Inputs      ShippingInputs    `json:"inputs"`
+	Breakdown   ShippingBreakdown `json:"breakdown"`
+	Total       float64           `json:"totalShipping"`
+	Warnings    ShippingWarnings  `json:"warnings"`
+	HasTariffs  bool              `json:"hasTariffs"`  // Whether this zone applies tariffs
+}
+
+// MultiZoneResult holds calculation results for all zones
+type MultiZoneResult struct {
+	Zones []ZoneShippingResult `json:"zones"`
+}
+
+// CalculateAllZonesParams holds parameters for multi-zone calculation
+type CalculateAllZonesParams struct {
+	ItemValueAUD      float64
+	WeightBand        string
+	BrandName         string
+	CountryOfOrigin   string // optional override
+	IncludeExtraCover bool
+	DiscountBand      int
+}
+
+// CalculateAllZones performs shipping calculation for all zones
+func CalculateAllZones(params CalculateAllZonesParams) (*MultiZoneResult, error) {
+	// Determine country of origin
+	coo := params.CountryOfOrigin
+	if coo == "" {
+		coo = GetCountryOfOrigin(params.BrandName)
+	}
+
+	// Get all zones in a consistent order
+	zoneOrder := []string{"1-New Zealand", "3-USA & Canada", "4-UK & Ireland"}
+	results := make([]ZoneShippingResult, 0, len(zoneOrder))
+
+	for _, zoneID := range zoneOrder {
+		_, ok := PostalZones[zoneID]
+		if !ok {
+			continue // Skip if zone not found
+		}
+
+		// Determine if this zone has tariffs (only USA)
+		hasTariffs := zoneID == "3-USA & Canada"
+
+		// Calculate components
+		ausPostShipping, err := CalculateAusPostShipping(zoneID, params.WeightBand, params.DiscountBand)
+		if err != nil {
+			return nil, fmt.Errorf("zone %s: %w", zoneID, err)
+		}
+
+		var extraCover float64
+		if params.IncludeExtraCover {
+			extraCover = CalculateExtraCover(params.ItemValueAUD, params.DiscountBand)
+		}
+
+		shippingSubtotal := ausPostShipping + extraCover
+
+		// Calculate tariffs and duties (only for USA)
+		var tariffDuties, zonosFees, dutiesSubtotal float64
+		var tariffRate float64
+		if hasTariffs {
+			tariffRate = GetTariffRate(coo)
+			tariffDuties = CalculateTariffDuties(params.ItemValueAUD, coo)
+			zonosFees = CalculateZonosFees(tariffDuties)
+			dutiesSubtotal = tariffDuties + zonosFees
+		}
+
+		total := shippingSubtotal + dutiesSubtotal
+
+		// Extract zone name from zone ID (e.g., "1-New Zealand" -> "New Zealand")
+		zoneName := zoneID
+		if idx := strings.Index(zoneID, "-"); idx >= 0 && idx < len(zoneID)-1 {
+			zoneName = zoneID[idx+1:]
+		}
+
+		results = append(results, ZoneShippingResult{
+			ZoneID:   zoneID,
+			ZoneName: zoneName,
+			Inputs: ShippingInputs{
+				ItemValueAUD:      params.ItemValueAUD,
+				WeightBand:        params.WeightBand,
+				BrandName:         params.BrandName,
+				CountryOfOrigin:   coo,
+				TariffRate:        tariffRate,
+				IncludeExtraCover: params.IncludeExtraCover,
+				DiscountBand:      params.DiscountBand,
+			},
+			Breakdown: ShippingBreakdown{
+				AusPostShipping:  ausPostShipping,
+				ExtraCover:       extraCover,
+				ShippingSubtotal: shippingSubtotal,
+				TariffDuties:     tariffDuties,
+				ZonosFees:        zonosFees,
+				DutiesSubtotal:   dutiesSubtotal,
+			},
+			Total: round2(total),
+			Warnings: ShippingWarnings{
+				ExtraCoverRecommended: ShouldWarnExtraCover(params.ItemValueAUD, params.IncludeExtraCover),
+			},
+			HasTariffs: hasTariffs,
+		})
+	}
+
+	return &MultiZoneResult{
+		Zones: results,
+	}, nil
 }
