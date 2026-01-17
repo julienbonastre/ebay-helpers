@@ -497,6 +497,46 @@
 
         /* Tablets and below (768px) */
         @media (max-width: 768px) {
+            /* Header - more compact on mobile */
+            header .container {
+                flex-direction: column;
+                gap: 0.75rem;
+                align-items: flex-start;
+            }
+
+            header h1 {
+                font-size: 1.25rem;
+            }
+
+            header h1 img {
+                height: 36px;
+            }
+
+            .auth-status {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                font-size: 0.75rem;
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            /* Hide account details on mobile - too cramped */
+            #accountInfo {
+                display: none !important;
+            }
+
+            #statusText {
+                font-size: 0.75rem;
+            }
+
+            .auth-status .btn {
+                padding: 0.5rem 0.75rem;
+                font-size: 0.8rem;
+                white-space: nowrap;
+            }
+
+
             .container {
                 padding: 1rem;
             }
@@ -663,6 +703,44 @@
             .card-body th,
             .card-body td {
                 padding: 0.5rem;
+            }
+
+            /* Reference data tables - horizontal scroll on mobile */
+            .reference-section {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .reference-section table {
+                min-width: 500px;
+                font-size: 0.85rem;
+            }
+
+            .reference-section th,
+            .reference-section td {
+                padding: 0.5rem;
+            }
+
+            .reference-section .btn-icon {
+                font-size: 1rem;
+                padding: 0.25rem;
+            }
+
+            /* Card headers on mobile - stack title and button */
+            .card-header {
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+
+            .card-header h2 {
+                flex: 1 1 100%;
+                margin-bottom: 0.5rem;
+            }
+
+            .card-header .btn {
+                float: none !important;
+                padding: 0.5rem 0.75rem;
+                font-size: 0.85rem;
             }
 
             /* Sync tab */
@@ -1031,10 +1109,12 @@
                     <button class="btn btn-primary" onclick="openAddTariffModal()" style="float: right;">+ Add Country</button>
                 </div>
                 <div class="card-body">
-                    <table id="tariffTable">
-                        <thead><tr><th>Country</th><th>Rate (%)</th><th>Notes</th><th>Actions</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="reference-section">
+                        <table id="tariffTable">
+                            <thead><tr><th>Country</th><th>Rate (%)</th><th>Notes</th><th>Actions</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="card">
@@ -1043,19 +1123,23 @@
                     <button class="btn btn-primary" onclick="openAddBrandModal()" style="float: right;">+ Add Brand</button>
                 </div>
                 <div class="card-body">
-                    <table id="brandTable">
-                        <thead><tr><th>Brand</th><th>Primary COO</th><th>Tariff Rate</th><th>Notes</th><th>Actions</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="reference-section">
+                        <table id="brandTable">
+                            <thead><tr><th>Brand</th><th>Primary COO</th><th>Tariff Rate</th><th>Notes</th><th>Actions</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="card">
                 <div class="card-header"><h2>Weight Bands (Zone 3 - USA/Canada) <span style="color: var(--text-muted); font-size: 0.85em;">(Read Only)</span></h2></div>
                 <div class="card-body">
-                    <table id="weightTable">
-                        <thead><tr><th>Band</th><th>Weight Range</th><th>Base Price (AUD)</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="reference-section">
+                        <table id="weightTable">
+                            <thead><tr><th>Band</th><th>Weight Range</th><th>Base Price (AUD)</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>

@@ -111,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupTabs();
     initPageSize();
     initSearchFilter();
+    hideMobileUnsupportedTabs(); // Hide complex tabs on mobile
     await checkAuthStatus();        // Check authentication status first
     await loadCurrentAccount();
     await loadReferenceData();
@@ -121,15 +122,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.history.replaceState({}, '', '/');
         await checkAuthStatus();    // Refresh auth status after OAuth
         await loadCurrentAccount();  // Reload account after OAuth
-        showTab('listings');
-        loadListings();
+        // On mobile, default to calculator; on desktop, show listings
+        showTab(isMobile() ? 'calculator' : 'listings');
+        if (!isMobile()) {
+            loadListings();
+        }
     } else {
-        // Since Listings is the default tab, load it automatically if authenticated
-        if (isAuthenticated) {
+        // On mobile, show calculator by default; on desktop, show listings if authenticated
+        if (isMobile()) {
+            showTab('calculator');
+        } else if (isAuthenticated) {
             loadListings();
         }
     }
 });
+
+// Hide tabs that aren't optimised for mobile
+function hideMobileUnsupportedTabs() {
+    if (isMobile()) {
+        // Hide Listings and Sync tabs on mobile - they're not optimised for small screens
+        const listingsTab = document.querySelector('.tab[data-tab="listings"]');
+        const syncTab = document.querySelector('.tab[data-tab="sync"]');
+
+        if (listingsTab) listingsTab.style.display = 'none';
+        if (syncTab) syncTab.style.display = 'none';
+    }
+}
 
 // Tab handling
 function setupTabs() {
