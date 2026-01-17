@@ -484,6 +484,49 @@ func (db *DB) GetTariffRate(countryName string) (float64, error) {
 	return rate, err
 }
 
+// CreateTariffRate creates a new tariff rate
+func (db *DB) CreateTariffRate(countryName string, rate float64, notes string) (int64, error) {
+	result, err := db.Exec(`
+		INSERT INTO tariff_rates (country_name, tariff_rate, notes, effective_date)
+		VALUES (?, ?, ?, DATE('now'))
+	`, countryName, rate, notes)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// UpdateTariffRate updates an existing tariff rate
+func (db *DB) UpdateTariffRate(id int64, countryName string, rate float64, notes string) error {
+	_, err := db.Exec(`
+		UPDATE tariff_rates
+		SET country_name = ?, tariff_rate = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, countryName, rate, notes, id)
+	return err
+}
+
+// DeleteTariffRate deletes a tariff rate
+func (db *DB) DeleteTariffRate(id int64) error {
+	// Check if any brands reference this country
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM brand_coo_mappings bcm
+		JOIN tariff_rates tr ON LOWER(bcm.primary_coo) = LOWER(tr.country_name)
+		WHERE tr.id = ?
+	`, id).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return fmt.Errorf("cannot delete tariff country: %d brand(s) reference this country", count)
+	}
+
+	_, err = db.Exec("DELETE FROM tariff_rates WHERE id = ?", id)
+	return err
+}
+
 // DeletionNotification represents a marketplace account deletion notification from eBay
 type DeletionNotification struct {
 	ID             int64     `json:"id"`

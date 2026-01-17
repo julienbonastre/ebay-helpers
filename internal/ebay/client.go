@@ -110,38 +110,15 @@ func (c *Client) GetAuthURL(state string) string {
 	url := c.oauthConfig.AuthCodeURL(state,
 		oauth2.SetAuthURLParam("prompt", "login"))
 
-	// DEBUG: Log the full OAuth URL (with truncated state for security)
-	log.Printf("[OAUTH-DEBUG] Generated OAuth URL: %s", url)
-	log.Printf("[OAUTH-DEBUG] Redirect URI: %s", c.oauthConfig.RedirectURL)
-	log.Printf("[OAUTH-DEBUG] Client ID: %s", c.oauthConfig.ClientID[:15]+"...")
-	log.Printf("[OAUTH-DEBUG] Scopes: %v", c.oauthConfig.Scopes)
-
 	return url
 }
 
 // ExchangeCode exchanges an auth code for tokens
 func (c *Client) ExchangeCode(ctx context.Context, code string) error {
-	log.Printf("[OAUTH-DEBUG] Exchanging authorization code (first 20 chars): %s...", code[:min(20, len(code))])
-	log.Printf("[OAUTH-DEBUG] Token URL: %s", c.oauthConfig.Endpoint.TokenURL)
-
 	token, err := c.oauthConfig.Exchange(ctx, code)
 	if err != nil {
 		log.Printf("[OAUTH-ERROR] Token exchange failed: %v", err)
 		return fmt.Errorf("failed to exchange code: %w", err)
-	}
-
-	// DEBUG: Log token details (NOT the actual token value for security)
-	log.Printf("[OAUTH-DEBUG] Token exchange successful!")
-	log.Printf("[OAUTH-DEBUG] Token type: %s", token.TokenType)
-	log.Printf("[OAUTH-DEBUG] Token expiry: %v", token.Expiry)
-	log.Printf("[OAUTH-DEBUG] Token expires in: %v", time.Until(token.Expiry))
-	log.Printf("[OAUTH-DEBUG] Has refresh token: %v", token.RefreshToken != "")
-
-	// Try to extract scopes from the token if available
-	if scopes, ok := token.Extra("scope").(string); ok {
-		log.Printf("[OAUTH-DEBUG] Token scopes: %s", scopes)
-	} else {
-		log.Printf("[OAUTH-DEBUG] No scope information in token response")
 	}
 
 	c.token = token
@@ -910,11 +887,6 @@ func (c *Client) GetItem(ctx context.Context, itemID string) (brand, shippingCos
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", "", "", "", nil, err
-	}
-
-	// Debug: Log raw XML for specific items to investigate COO issues
-	if itemID == "205968464842" || itemID == "205995527662" || itemID == "205972787815" {
-		log.Printf("[GET-ITEM-RAW-XML] Item %s raw response:\n%s", itemID, string(body))
 	}
 
 	// Parse XML response
