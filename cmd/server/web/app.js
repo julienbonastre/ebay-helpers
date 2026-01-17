@@ -464,7 +464,7 @@ async function calculate() {
     };
 
     try {
-        const res = await secureFetch('/api/calculate', {
+        const res = await secureFetch('/api/calculate/all-zones', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(params)
@@ -484,29 +484,60 @@ async function calculate() {
 
 function displayCalculationResult(result) {
     const resultBox = document.getElementById('calcResult');
-    const totalEl = document.getElementById('resultTotal');
     const breakdownEl = document.getElementById('resultBreakdown');
     const warningBox = document.getElementById('calcWarning');
 
-    totalEl.textContent = result.totalShipping.toFixed(2);
+    // Build multi-zone result display
+    let html = '';
 
-    const b = result.breakdown;
-    breakdownEl.innerHTML = `
-        <strong>Breakdown:</strong><br>
-        AusPost Shipping: $${b.ausPostShipping.toFixed(2)}<br>
-        ${b.extraCover > 0 ? `Extra Cover: $${b.extraCover.toFixed(2)}<br>` : ''}
-        Shipping Subtotal: $${b.shippingSubtotal.toFixed(2)}<br>
-        <br>
-        Tariff Duties (${(result.inputs.tariffRate * 100).toFixed(0)}%): $${b.tariffDuties.toFixed(2)}<br>
-        Zonos Fees: $${b.zonosFees.toFixed(2)}<br>
-        Duties Subtotal: $${b.dutiesSubtotal.toFixed(2)}<br>
-        <br>
-        <strong>COO:</strong> ${result.inputs.countryOfOrigin}
-    `;
+    // Add COO info at the top
+    if (result.zones.length > 0) {
+        html += `<div style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; color: var(--text-muted);">
+            <strong>Country of Origin:</strong> ${result.zones[0].inputs.countryOfOrigin}
+        </div>`;
+    }
 
+    html += '<div style="display: flex; flex-direction: column; gap: 1rem;">';
+
+    // Show zones in order: NZ, USA, UK
+    result.zones.forEach((zone, index) => {
+        const b = zone.breakdown;
+        const hasTariffs = zone.hasTariffs;
+
+        // Use consistent aqua/blue colour for all totals
+        const totalColor = '#06b6d4'; // aqua/cyan
+
+        // Zone header with warning icon for tariff zones
+        const zoneHeader = hasTariffs
+            ? `<strong>${zone.zoneName}</strong> ⚠️ <span style="color: var(--warning);">(Tariffs Apply)</span>`
+            : `<strong>${zone.zoneName}</strong>`;
+
+        html += `
+            <div style="border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; background: var(--card);">
+                <div style="margin-bottom: 0.75rem; font-size: 1.1rem;">
+                    ${zoneHeader}
+                </div>
+                <div style="font-size: 1.5rem; font-weight: bold; margin-bottom: 0.5rem; color: ${totalColor};">
+                    $${zone.totalShipping.toFixed(2)} AUD
+                </div>
+                <div style="font-size: 0.875rem; color: var(--text-muted); line-height: 1.5;">
+                    Base Postage: $${b.ausPostShipping.toFixed(2)}
+                    ${b.extraCover > 0 ? `<br>Extra Cover: $${b.extraCover.toFixed(2)}` : ''}
+                    ${hasTariffs && b.tariffDuties > 0 ? `<br>Tariff (${(zone.inputs.tariffRate * 100).toFixed(0)}%): $${b.tariffDuties.toFixed(2)}` : ''}
+                    ${hasTariffs && b.zonosFees > 0 ? `<br>Zonos Fees: $${b.zonosFees.toFixed(2)}` : ''}
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+
+    breakdownEl.innerHTML = html;
     resultBox.style.display = 'block';
 
-    if (result.warnings.extraCoverRecommended) {
+    // Check if any zone recommends extra cover
+    const needsExtraCover = result.zones.some(z => z.warnings.extraCoverRecommended);
+    if (needsExtraCover) {
         warningBox.innerHTML = '⚠️ Extra Cover recommended for items $250+ AUD';
         warningBox.style.display = 'block';
     } else {

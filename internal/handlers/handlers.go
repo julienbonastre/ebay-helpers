@@ -953,6 +953,35 @@ func (h *Handler) GetTariffCountries(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// CalculateAllZones calculates shipping costs for all zones
+func (h *Handler) CalculateAllZones(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+
+	var req CalculateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	result, err := calculator.CalculateAllZones(calculator.CalculateAllZonesParams{
+		ItemValueAUD:      req.ItemValueAUD,
+		WeightBand:        req.WeightBand,
+		BrandName:         req.BrandName,
+		CountryOfOrigin:   req.CountryOfOrigin,
+		IncludeExtraCover: req.IncludeExtraCover,
+		DiscountBand:      req.DiscountBand,
+	})
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, result)
+}
+
 // Reference Data CRUD Endpoints
 
 // ReferenceTariffs handles CRUD operations for tariff rates
