@@ -1844,6 +1844,9 @@ async function saveSettings() {
     } catch (err) {
         console.error('Failed to save settings:', err);
         alert('Failed to save settings: ' + err.message);
+    }
+}
+
 // Reference Data CRUD Functions
 
 // Tariff Management
