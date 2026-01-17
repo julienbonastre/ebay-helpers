@@ -1188,11 +1188,11 @@ async function renderListings() {
             } else if (!title.toLowerCase().includes(brand.toLowerCase())) {
                 // Brand is set but NOT in title - mismatch
                 brandClass = 'brand-mismatch';
-                brandDisplay = `${brand}<br><strong>[NOT IN TITLE]</strong>`;
+                brandDisplay = `${escapeHtml(brand)}<br><strong>[NOT IN TITLE]</strong>`;
             } else {
                 // Brand is set AND in title - all good
                 brandClass = 'brand-match';
-                brandDisplay = brand;
+                brandDisplay = escapeHtml(brand);
             }
         } else if (enriched && (!enriched.brand || enriched.brand === '-' || enriched.brand.trim() === '')) {
             // Enrichment loaded but no brand found
@@ -1213,15 +1213,15 @@ async function renderListings() {
             // COO exists in listing
             if (coo.toLowerCase() === expectedCOO.toLowerCase()) {
                 cooClass = 'coo-match';
-                cooDisplay = coo;
+                cooDisplay = escapeHtml(coo);
             } else {
                 cooClass = 'coo-mismatch';
-                cooDisplay = `${coo}<br><strong>[MISMATCH: ${expectedCOO}]</strong>`;
+                cooDisplay = `${escapeHtml(coo)}<br><strong>[MISMATCH: ${escapeHtml(expectedCOO)}]</strong>`;
             }
         } else {
             // COO missing from listing - show expected COO with [MISSING] label
             cooClass = 'coo-missing';
-            cooDisplay = `${expectedCOO}<br><strong>[MISSING]</strong>`;
+            cooDisplay = `${escapeHtml(expectedCOO)}<br><strong>[MISSING]</strong>`;
         }
 
         // US Postage: show spinner if enrichment hasn't loaded yet
@@ -1264,22 +1264,22 @@ async function renderListings() {
         }
 
         return `
-            <tr data-offer-id="${offer.offerId}">
+            <tr data-offer-id="${escapeHtml(offer.offerId)}">
                 <td class="checkbox-cell">
-                    <input type="checkbox" onchange="toggleSelect('${offer.offerId}')"
+                    <input type="checkbox" onchange="toggleSelect('${escapeHtml(offer.offerId)}')"
                            ${selectedItems.has(offer.offerId) ? 'checked' : ''}>
                 </td>
-                <td><img src="${imageUrl}" class="thumbnail" alt="${title}" onclick="openCarousel('${offer.offerId}')" onerror="this.src='https://via.placeholder.com/50'"></td>
-                <td class="title-cell"><a href="${listingUrl}" target="_blank" rel="noopener noreferrer" class="title-link">${title}</a></td>
+                <td><img src="${escapeHtml(imageUrl)}" class="thumbnail" alt="${escapeHtml(title)}" onclick="openCarousel('${escapeHtml(offer.offerId)}')" onerror="this.src='https://via.placeholder.com/50'"></td>
+                <td class="title-cell"><a href="${escapeHtml(listingUrl)}" target="_blank" rel="noopener noreferrer" class="title-link">${escapeHtml(title)}</a></td>
                 <td class="price">$${parseFloat(price).toFixed(2)}</td>
-                <td class="brand-cell ${brandClass}" data-item-id="${offer.offerId}">${brandDisplay}</td>
-                <td class="coo-cell ${cooClass}" data-item-id="${offer.offerId}">${cooDisplay}</td>
+                <td class="brand-cell ${brandClass}" data-item-id="${escapeHtml(offer.offerId)}">${brandDisplay}</td>
+                <td class="coo-cell ${cooClass}" data-item-id="${escapeHtml(offer.offerId)}">${cooDisplay}</td>
                 <td>Medium</td>
-                <td class="shipping-cell" data-item-id="${offer.offerId}">${currentUSPostage}</td>
-                <td class="calculated-cell" data-item-id="${offer.offerId}">${calculated}</td>
-                <td class="diff-cell ${diffClass}" data-item-id="${offer.offerId}">${diff}</td>
+                <td class="shipping-cell" data-item-id="${escapeHtml(offer.offerId)}">${currentUSPostage}</td>
+                <td class="calculated-cell" data-item-id="${escapeHtml(offer.offerId)}">${calculated}</td>
+                <td class="diff-cell ${diffClass}" data-item-id="${escapeHtml(offer.offerId)}">${diff}</td>
                 <td>
-                    <button class="btn btn-sm btn-secondary" onclick="editItem('${offer.offerId}')">Edit</button>
+                    <button class="btn btn-sm btn-secondary" onclick="editItem('${escapeHtml(offer.offerId)}')">Edit</button>
                 </td>
             </tr>
         `;
@@ -1768,11 +1768,11 @@ function updateTableRow(enrichedData) {
         } else if (!title.toLowerCase().includes(brand.toLowerCase())) {
             // Brand is set but NOT in title - mismatch
             brandClass = 'brand-mismatch';
-            brandDisplay = `${brand}<br><strong>[NOT IN TITLE]</strong>`;
+            brandDisplay = `${escapeHtml(brand)}<br><strong>[NOT IN TITLE]</strong>`;
         } else {
             // Brand is set AND in title - all good
             brandClass = 'brand-match';
-            brandDisplay = brand;
+            brandDisplay = escapeHtml(brand);
         }
 
         brandCell.innerHTML = brandDisplay;
@@ -1794,15 +1794,15 @@ function updateTableRow(enrichedData) {
             // COO exists in listing
             if (coo.toLowerCase() === expectedCOO.toLowerCase()) {
                 cooClass = 'coo-match';
-                cooDisplay = coo;
+                cooDisplay = escapeHtml(coo);
             } else {
                 cooClass = 'coo-mismatch';
-                cooDisplay = `${coo}<br><strong>[MISMATCH: ${expectedCOO}]</strong>`;
+                cooDisplay = `${escapeHtml(coo)}<br><strong>[MISMATCH: ${escapeHtml(expectedCOO)}]</strong>`;
             }
         } else {
             // COO missing from listing - show expected COO with [MISSING] label
             cooClass = 'coo-missing';
-            cooDisplay = `${expectedCOO}<br><strong>[MISSING]</strong>`;
+            cooDisplay = `${escapeHtml(expectedCOO)}<br><strong>[MISSING]</strong>`;
         }
 
         cooCell.innerHTML = cooDisplay;
