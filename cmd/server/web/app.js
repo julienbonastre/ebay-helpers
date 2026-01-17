@@ -1,3 +1,14 @@
+// HTML escape function to prevent XSS attacks
+function escapeHtml(unsafe) {
+    if (unsafe === null || unsafe === undefined) return '';
+    return String(unsafe)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 // Global session expiry handler
 function handleSessionExpiry() {
     console.log('[SESSION] Session expired - clearing caches and redirecting to login');
@@ -362,14 +373,14 @@ async function loadReferenceData() {
 
 function populateBrandSelect() {
     const select = document.getElementById('calcBrand');
-    select.innerHTML = brands.map(b => `<option value="${b}">${b}</option>`).join('');
+    select.innerHTML = brands.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
 }
 
 function populateCOOSelect() {
     const select = document.getElementById('calcCOO');
     const options = ['<option value="">Use Brand Default</option>'];
     tariffCountries.forEach(c => {
-        options.push(`<option value="${c.country}">${c.country} (${c.ratePercent}%)</option>`);
+        options.push(`<option value="${escapeHtml(c.country)}">${escapeHtml(c.country)} (${c.ratePercent}%)</option>`);
     });
     select.innerHTML = options.join('');
 }
@@ -379,9 +390,9 @@ function populateReferenceTables() {
     const tariffBody = document.querySelector('#tariffTable tbody');
     tariffBody.innerHTML = window.dbTariffs.map(t =>
         `<tr>
-            <td>${t.countryName}</td>
+            <td>${escapeHtml(t.countryName)}</td>
             <td>${(t.tariffRate * 100).toFixed(1)}%</td>
-            <td>${t.notes || ''}</td>
+            <td>${escapeHtml(t.notes)}</td>
             <td>
                 <button class="btn-icon btn-edit" onclick="editTariff(${t.id})" title="Edit">✏️</button>
                 <button class="btn-icon btn-delete" onclick="deleteTariff(${t.id})" title="Delete">🗑️</button>
@@ -394,10 +405,10 @@ function populateReferenceTables() {
     brandBody.innerHTML = window.dbBrands.map(b => {
         const tariff = window.dbTariffs.find(t => t.countryName === b.primaryCoo);
         return `<tr>
-            <td>${b.brandName}</td>
-            <td>${b.primaryCoo}</td>
+            <td>${escapeHtml(b.brandName)}</td>
+            <td>${escapeHtml(b.primaryCoo)}</td>
             <td>${tariff ? (tariff.tariffRate * 100).toFixed(1) + '%' : '-'}</td>
-            <td>${b.notes || ''}</td>
+            <td>${escapeHtml(b.notes)}</td>
             <td>
                 <button class="btn-icon btn-edit" onclick="editBrand(${b.id})" title="Edit">✏️</button>
                 <button class="btn-icon btn-delete" onclick="deleteBrand(${b.id})" title="Delete">🗑️</button>
@@ -408,7 +419,7 @@ function populateReferenceTables() {
     // Weight bands table (read-only)
     const weightBody = document.querySelector('#weightTable tbody');
     weightBody.innerHTML = weightBands.map(b =>
-        `<tr><td>${b.key}</td><td>${b.label.replace(b.key + ' ', '')}</td><td>$${b.basePrice.toFixed(2)}</td></tr>`
+        `<tr><td>${escapeHtml(b.key)}</td><td>${escapeHtml(b.label.replace(b.key + ' ', ''))}</td><td>$${b.basePrice.toFixed(2)}</td></tr>`
     ).join('');
 }
 
