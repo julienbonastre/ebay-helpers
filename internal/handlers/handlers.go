@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -1000,6 +1001,17 @@ func (h *Handler) listTariffs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createTariff(w http.ResponseWriter, r *http.Request) {
+	// Require authentication for creating tariff data
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	if !client.IsAuthenticated() {
+		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
+		return
+	}
+
 	var req struct {
 		CountryName string  `json:"countryName"`
 		TariffRate  float64 `json:"tariffRate"`
@@ -1033,6 +1045,17 @@ func (h *Handler) createTariff(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateTariff(w http.ResponseWriter, r *http.Request, id int64) {
+	// Require authentication for updating tariff data
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	if !client.IsAuthenticated() {
+		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
+		return
+	}
+
 	var req struct {
 		CountryName string  `json:"countryName"`
 		TariffRate  float64 `json:"tariffRate"`
@@ -1062,6 +1085,17 @@ func (h *Handler) updateTariff(w http.ResponseWriter, r *http.Request, id int64)
 }
 
 func (h *Handler) deleteTariff(w http.ResponseWriter, r *http.Request, id int64) {
+	// Require authentication for deleting tariff data
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	if !client.IsAuthenticated() {
+		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
+		return
+	}
+
 	if err := h.db.DeleteTariffRate(id); err != nil {
 		log.Printf("Error deleting tariff: %v", err)
 		errorResponse(w, http.StatusBadRequest, err.Error())
@@ -1117,6 +1151,17 @@ func (h *Handler) listBrands(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createBrand(w http.ResponseWriter, r *http.Request) {
+	// Require authentication for creating brand data
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	if !client.IsAuthenticated() {
+		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
+		return
+	}
+
 	var req struct {
 		BrandName  string `json:"brandName"`
 		PrimaryCOO string `json:"primaryCoo"`
@@ -1150,6 +1195,17 @@ func (h *Handler) createBrand(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateBrand(w http.ResponseWriter, r *http.Request, id int64) {
+	// Require authentication for updating brand data
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	if !client.IsAuthenticated() {
+		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
+		return
+	}
+
 	var req struct {
 		BrandName  string `json:"brandName"`
 		PrimaryCOO string `json:"primaryCoo"`
@@ -1179,6 +1235,17 @@ func (h *Handler) updateBrand(w http.ResponseWriter, r *http.Request, id int64) 
 }
 
 func (h *Handler) deleteBrand(w http.ResponseWriter, r *http.Request, id int64) {
+	// Require authentication for deleting brand data
+	client, err := h.getEbayClient(r)
+	if err != nil {
+		errorResponse(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	if !client.IsAuthenticated() {
+		errorResponse(w, http.StatusUnauthorized, "Not authenticated with eBay")
+		return
+	}
+
 	if err := h.db.DeleteBrandCOOMapping(id); err != nil {
 		log.Printf("Error deleting brand: %v", err)
 		errorResponse(w, http.StatusInternalServerError, "Failed to delete brand")
@@ -1368,9 +1435,14 @@ func (h *Handler) GetSyncHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Simple state generator (in production, use crypto/rand)
+// Cryptographically secure state generator for OAuth CSRF protection
 func generateState() string {
-	return "ebay-helpers-" + strconv.FormatInt(int64(100000+len("state")*12345), 36)
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand failing indicates serious system compromise
+		log.Fatalf("CRITICAL: crypto/rand.Read failed - system entropy exhausted: %v", err)
+	}
+	return base64.URLEncoding.EncodeToString(b)
 }
 
 // MarketplaceAccountDeletion handles eBay marketplace account deletion notifications
