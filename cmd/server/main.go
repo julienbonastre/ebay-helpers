@@ -148,6 +148,12 @@ func main() {
 	mux.HandleFunc("/api/weight-bands", h.GetWeightBands)
 	mux.HandleFunc("/api/tariff-countries", h.GetTariffCountries)
 
+	// Reference Data CRUD
+	mux.HandleFunc("/api/reference/tariffs/", h.ReferenceTariffByID) // PUT/DELETE /api/reference/tariffs/:id
+	mux.HandleFunc("/api/reference/tariffs", h.ReferenceTariffs)     // GET/POST /api/reference/tariffs
+	mux.HandleFunc("/api/reference/brands/", h.ReferenceBrandByID)   // PUT/DELETE /api/reference/brands/:id
+	mux.HandleFunc("/api/reference/brands", h.ReferenceBrands)       // GET/POST /api/reference/brands
+
 	// Serve embedded static files
 	webContent, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -190,7 +196,36 @@ func main() {
 		log.Println("WARNING: EBAY_CLIENT_ID not set - eBay API calls will fail")
 	}
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	// Wrap with security headers middleware
+	secureHandler := securityHeadersMiddleware(mux)
+
+	if err := http.ListenAndServe(addr, secureHandler); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// securityHeadersMiddleware adds security headers to all responses
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Prevent clickjacking
+		w.Header().Set("X-Frame-Options", "DENY")
+
+		// Prevent MIME sniffing
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		// Enable XSS protection (legacy browsers)
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+
+		// Content Security Policy - strict policy for this app
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'")
+
+		// Referrer policy
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
+		// HSTS - Enforce HTTPS (browsers ignore this header over HTTP anyway)
+		// Only takes effect when served over HTTPS (e.g., via ngrok or reverse proxy)
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+
+		next.ServeHTTP(w, r)
+	})
 }

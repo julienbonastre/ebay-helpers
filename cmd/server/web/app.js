@@ -1,3 +1,14 @@
+// HTML escape function to prevent XSS attacks
+function escapeHtml(unsafe) {
+    if (unsafe === null || unsafe === undefined) return '';
+    return String(unsafe)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 // Global session expiry handler
 function handleSessionExpiry() {
     console.log('[SESSION] Session expired - clearing caches and redirecting to login');
@@ -331,19 +342,26 @@ async function handleAuth() {
 // Reference data
 async function loadReferenceData() {
     try {
-        const [brandsRes, countriesRes, bandsRes] = await Promise.all([
-            secureFetch('/api/brands'),
-            secureFetch('/api/tariff-countries'),
+        const [brandsRes, tariffsRes, bandsRes] = await Promise.all([
+            secureFetch('/api/reference/brands'),
+            secureFetch('/api/reference/tariffs'),
             secureFetch('/api/weight-bands')
         ]);
 
         const brandsData = await brandsRes.json();
-        const countriesData = await countriesRes.json();
+        const tariffsData = await tariffsRes.json();
         const bandsData = await bandsRes.json();
 
-        brands = brandsData.brands || [];
-        tariffCountries = countriesData.countries || [];
+        window.dbBrands = brandsData.brands || [];
+        window.dbTariffs = tariffsData.tariffs || [];
         weightBands = bandsData.weightBands || [];
+
+        // Legacy data for calculator compatibility
+        brands = window.dbBrands.map(b => b.brandName);
+        tariffCountries = window.dbTariffs.map(t => ({
+            country: t.countryName,
+            ratePercent: (t.tariffRate * 100).toFixed(0)
+        }));
 
         populateBrandSelect();
         populateCOOSelect();
@@ -355,39 +373,54 @@ async function loadReferenceData() {
 
 function populateBrandSelect() {
     const select = document.getElementById('calcBrand');
-    select.innerHTML = brands.map(b => `<option value="${b}">${b}</option>`).join('');
+    select.innerHTML = brands.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
 }
 
 function populateCOOSelect() {
     const select = document.getElementById('calcCOO');
     const options = ['<option value="">Use Brand Default</option>'];
     tariffCountries.forEach(c => {
-        options.push(`<option value="${c.country}">${c.country} (${c.ratePercent}%)</option>`);
+        options.push(`<option value="${escapeHtml(c.country)}">${escapeHtml(c.country)} (${c.ratePercent}%)</option>`);
     });
     select.innerHTML = options.join('');
 }
 
 function populateReferenceTables() {
-    // Tariff table
+    // Tariff table with edit/delete buttons
     const tariffBody = document.querySelector('#tariffTable tbody');
-    tariffBody.innerHTML = tariffCountries.map(c =>
-        `<tr><td>${c.country}</td><td>${c.ratePercent}%</td></tr>`
+    tariffBody.innerHTML = window.dbTariffs.map(t =>
+        `<tr>
+            <td>${escapeHtml(t.countryName)}</td>
+            <td>${(t.tariffRate * 100).toFixed(1)}%</td>
+            <td>${escapeHtml(t.notes)}</td>
+            <td>
+                <button class="btn-icon btn-edit" onclick="editTariff(${t.id})" title="Edit">✏️</button>
+                <button class="btn-icon btn-delete" onclick="deleteTariff(${t.id})" title="Delete">🗑️</button>
+            </td>
+        </tr>`
     ).join('');
 
-    // Weight bands table
+    // Brand table with edit/delete buttons
+    const brandBody = document.querySelector('#brandTable tbody');
+    brandBody.innerHTML = window.dbBrands.map(b => {
+        const tariff = window.dbTariffs.find(t => t.countryName === b.primaryCoo);
+        return `<tr>
+            <td>${escapeHtml(b.brandName)}</td>
+            <td>${escapeHtml(b.primaryCoo)}</td>
+            <td>${tariff ? (tariff.tariffRate * 100).toFixed(1) + '%' : '-'}</td>
+            <td>${escapeHtml(b.notes)}</td>
+            <td>
+                <button class="btn-icon btn-edit" onclick="editBrand(${b.id})" title="Edit">✏️</button>
+                <button class="btn-icon btn-delete" onclick="deleteBrand(${b.id})" title="Delete">🗑️</button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    // Weight bands table (read-only)
     const weightBody = document.querySelector('#weightTable tbody');
     weightBody.innerHTML = weightBands.map(b =>
-        `<tr><td>${b.key}</td><td>${b.label.replace(b.key + ' ', '')}</td><td>$${b.basePrice.toFixed(2)}</td></tr>`
+        `<tr><td>${escapeHtml(b.key)}</td><td>${escapeHtml(b.label.replace(b.key + ' ', ''))}</td><td>$${b.basePrice.toFixed(2)}</td></tr>`
     ).join('');
-
-    // Brand table (we need to fetch COO for each)
-    const brandBody = document.querySelector('#brandTable tbody');
-    // For simplicity, just show brands - COO comes from calculator
-    brandBody.innerHTML = brands.map(b => {
-        const country = getBrandCOO(b);
-        const tariff = tariffCountries.find(c => c.country === country);
-        return `<tr><td>${b}</td><td>${country}</td><td>${tariff ? tariff.ratePercent + '%' : '-'}</td></tr>`;
-    }).join('');
 }
 
 // Brand to COO mapping (client-side copy for display)
@@ -1609,5 +1642,216 @@ function handleCarouselKeys(e) {
         nextImage();
     } else if (e.key === 'ArrowLeft') {
         prevImage();
+    }
+}
+
+// Reference Data CRUD Functions
+
+// Tariff Management
+function openAddTariffModal() {
+    document.getElementById('tariffModalTitle').textContent = 'Add Tariff Country';
+    document.getElementById('tariffId').value = '';
+    document.getElementById('tariffCountry').value = '';
+    document.getElementById('tariffRate').value = '';
+    document.getElementById('tariffNotes').value = '';
+    const modal = document.getElementById('tariffModal');
+    modal.classList.add('active');
+    modal.style.display = 'flex';
+    document.addEventListener('keydown', handleTariffModalKeys);
+}
+
+function editTariff(id) {
+    const tariff = window.dbTariffs.find(t => t.id === id);
+    if (!tariff) return;
+
+    document.getElementById('tariffModalTitle').textContent = 'Edit Tariff Country';
+    document.getElementById('tariffId').value = id;
+    document.getElementById('tariffCountry').value = tariff.countryName;
+    document.getElementById('tariffRate').value = (tariff.tariffRate * 100).toFixed(2);
+    document.getElementById('tariffNotes').value = tariff.notes || '';
+    const modal = document.getElementById('tariffModal');
+    modal.classList.add('active');
+    modal.style.display = 'flex';
+    document.addEventListener('keydown', handleTariffModalKeys);
+}
+
+function closeTariffModal() {
+    const modal = document.getElementById('tariffModal');
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+    document.removeEventListener('keydown', handleTariffModalKeys);
+}
+
+function handleTariffModalKeys(e) {
+    if (e.key === 'Escape') {
+        closeTariffModal();
+    }
+}
+
+async function saveTariff(event) {
+    event.preventDefault();
+
+    const id = document.getElementById('tariffId').value;
+    const data = {
+        countryName: document.getElementById('tariffCountry').value.trim(),
+        tariffRate: parseFloat(document.getElementById('tariffRate').value) / 100,
+        notes: document.getElementById('tariffNotes').value.trim()
+    };
+
+    try {
+        const url = id ? `/api/reference/tariffs/${id}` : '/api/reference/tariffs';
+        const method = id ? 'PUT' : 'POST';
+
+        const res = await secureFetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+
+        closeTariffModal();
+        await loadReferenceData();
+        alert(`Tariff ${id ? 'updated' : 'created'} successfully`);
+    } catch (err) {
+        alert(`Error: ${err.message}`);
+    }
+}
+
+async function deleteTariff(id) {
+    const tariff = window.dbTariffs.find(t => t.id === id);
+    if (!confirm(`Delete tariff for "${tariff.countryName}"? This will fail if any brands reference this country.`)) {
+        return;
+    }
+
+    try {
+        const res = await secureFetch(`/api/reference/tariffs/${id}`, {
+            method: 'DELETE'
+        });
+
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+
+        await loadReferenceData();
+        alert('Tariff deleted successfully');
+    } catch (err) {
+        alert(`Error: ${err.message}`);
+    }
+}
+
+// Brand Management
+function openAddBrandModal() {
+    document.getElementById('brandModalTitle').textContent = 'Add Brand';
+    document.getElementById('brandId').value = '';
+    document.getElementById('brandName').value = '';
+    document.getElementById('brandNotes').value = '';
+
+    // Populate COO dropdown with current tariff countries
+    const select = document.getElementById('brandCOO');
+    select.innerHTML = '<option value="">Select Country</option>' +
+        window.dbTariffs.map(t => `<option value="${t.countryName}">${t.countryName}</option>`).join('');
+
+    const modal = document.getElementById('brandModal');
+    modal.classList.add('active');
+    modal.style.display = 'flex';
+    document.addEventListener('keydown', handleBrandModalKeys);
+}
+
+function editBrand(id) {
+    const brand = window.dbBrands.find(b => b.id === id);
+    if (!brand) return;
+
+    document.getElementById('brandModalTitle').textContent = 'Edit Brand';
+    document.getElementById('brandId').value = id;
+    document.getElementById('brandName').value = brand.brandName;
+    document.getElementById('brandNotes').value = brand.notes || '';
+
+    // Populate COO dropdown
+    const select = document.getElementById('brandCOO');
+    select.innerHTML = '<option value="">Select Country</option>' +
+        window.dbTariffs.map(t => `<option value="${t.countryName}" ${t.countryName === brand.primaryCoo ? 'selected' : ''}>${t.countryName}</option>`).join('');
+
+    const modal = document.getElementById('brandModal');
+    modal.classList.add('active');
+    modal.style.display = 'flex';
+    document.addEventListener('keydown', handleBrandModalKeys);
+}
+
+function closeBrandModal() {
+    const modal = document.getElementById('brandModal');
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+    document.removeEventListener('keydown', handleBrandModalKeys);
+}
+
+function handleBrandModalKeys(e) {
+    if (e.key === 'Escape') {
+        closeBrandModal();
+    }
+}
+
+async function saveBrand(event) {
+    event.preventDefault();
+
+    const id = document.getElementById('brandId').value;
+    const data = {
+        brandName: document.getElementById('brandName').value.trim(),
+        primaryCoo: document.getElementById('brandCOO').value,
+        notes: document.getElementById('brandNotes').value.trim()
+    };
+
+    if (!data.primaryCoo) {
+        alert('Please select a country of origin');
+        return;
+    }
+
+    try {
+        const url = id ? `/api/reference/brands/${id}` : '/api/reference/brands';
+        const method = id ? 'PUT' : 'POST';
+
+        const res = await secureFetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+
+        closeBrandModal();
+        await loadReferenceData();
+        alert(`Brand ${id ? 'updated' : 'created'} successfully`);
+    } catch (err) {
+        alert(`Error: ${err.message}`);
+    }
+}
+
+async function deleteBrand(id) {
+    const brand = window.dbBrands.find(b => b.id === id);
+    if (!confirm(`Delete brand "${brand.brandName}"?`)) {
+        return;
+    }
+
+    try {
+        const res = await secureFetch(`/api/reference/brands/${id}`, {
+            method: 'DELETE'
+        });
+
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+
+        await loadReferenceData();
+        alert('Brand deleted successfully');
+    } catch (err) {
+        alert(`Error: ${err.message}`);
     }
 }
