@@ -9,6 +9,148 @@ function escapeHtml(unsafe) {
         .replace(/'/g, '&#039;');
 }
 
+// ============================================================
+// Toast Notification System
+// ============================================================
+
+const TOAST_ICONS = {
+    success: '✅',
+    error: '❌',
+    warning: '⚠️',
+    info: 'ℹ️'
+};
+
+function showToast(message, type = 'info', options = {}) {
+    const {
+        duration = type === 'error' ? 0 : 4000, // Errors stick, others auto-dismiss
+        closeable = type === 'error' // Only errors get close button by default
+    } = options;
+
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+
+    const icon = document.createElement('span');
+    icon.className = 'toast-icon';
+    icon.textContent = TOAST_ICONS[type];
+
+    const content = document.createElement('div');
+    content.className = 'toast-content';
+    content.textContent = message;
+
+    toast.appendChild(icon);
+    toast.appendChild(content);
+
+    if (closeable) {
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'toast-close';
+        closeBtn.textContent = '×';
+        closeBtn.onclick = () => removeToast(toast);
+        toast.appendChild(closeBtn);
+    }
+
+    container.appendChild(toast);
+
+    // Auto-dismiss if duration specified
+    if (duration > 0) {
+        setTimeout(() => removeToast(toast), duration);
+    }
+
+    return toast;
+}
+
+function removeToast(toast) {
+    toast.classList.add('removing');
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+        }
+    }, 300); // Match animation duration
+}
+
+// Convenience functions
+function showSuccess(message, duration) {
+    return showToast(message, 'success', { duration });
+}
+
+function showError(message) {
+    return showToast(message, 'error', { closeable: true });
+}
+
+function showWarning(message, duration) {
+    return showToast(message, 'warning', { duration: duration || 5000 });
+}
+
+function showInfo(message, duration) {
+    return showToast(message, 'info', { duration });
+}
+
+// ============================================================
+// Confirmation Modal System
+// ============================================================
+
+let confirmResolve = null;
+
+function showConfirm(message, options = {}) {
+    const {
+        title = 'Confirm Action',
+        confirmText = 'Confirm',
+        cancelText = 'Cancel',
+        type = 'warning' // 'warning' or 'danger'
+    } = options;
+
+    return new Promise((resolve) => {
+        confirmResolve = resolve;
+
+        const overlay = document.getElementById('confirmOverlay');
+        const icon = document.getElementById('confirmIcon');
+        const titleEl = document.getElementById('confirmTitle');
+        const messageEl = document.getElementById('confirmMessage');
+        const confirmBtn = document.getElementById('confirmButton');
+
+        // Set content
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        confirmBtn.textContent = confirmText;
+
+        // Set icon and button color
+        icon.className = `confirm-icon confirm-icon-${type}`;
+        icon.textContent = type === 'danger' ? '🗑️' : '⚠️';
+        confirmBtn.className = type === 'danger' ? 'btn btn-danger' : 'btn btn-primary';
+
+        // Show modal
+        overlay.classList.add('active');
+
+        // Close on backdrop click
+        overlay.onclick = (e) => {
+            if (e.target === overlay) {
+                closeConfirm(false);
+            }
+        };
+
+        // Close on Escape key
+        const handleEscape = (e) => {
+            if (e.key === 'Escape') {
+                closeConfirm(false);
+                document.removeEventListener('keydown', handleEscape);
+            }
+        };
+        document.addEventListener('keydown', handleEscape);
+    });
+}
+
+function closeConfirm(result) {
+    const overlay = document.getElementById('confirmOverlay');
+    overlay.classList.remove('active');
+
+    if (confirmResolve) {
+        confirmResolve(result);
+        confirmResolve = null;
+    }
+}
+
+// ============================================================
+
 // Global session expiry handler
 function handleSessionExpiry() {
     console.log('[SESSION] Session expired - clearing caches and redirecting to login');
@@ -29,11 +171,13 @@ function handleSessionExpiry() {
     isAuthenticated = false;
     currentAccount = null;
 
-    // Show alert to user
-    alert('Your eBay session has expired. Please reconnect to continue.');
+    // Show toast to user
+    showError('Your eBay session has expired. Please reconnect to continue.');
 
-    // Reload page to show login screen
-    window.location.href = '/';
+    // Reload page to show login screen after a short delay
+    setTimeout(() => {
+        window.location.href = '/';
+    }, 2000);
 }
 
 // Fetch wrapper that handles session expiry
@@ -299,7 +443,7 @@ async function handleAuth() {
 
         // Check if the URL looks valid (has a client_id)
         if (!data.url || data.url.includes('client_id=&') || data.url.includes('client_id=""')) {
-            alert('eBay API credentials not configured.\n\nSet these environment variables before starting the server:\n\nEBAY_CLIENT_ID=your-client-id\nEBAY_CLIENT_SECRET=your-client-secret');
+            showError('eBay API credentials not configured. Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET environment variables before starting the server.');
             return;
         }
 
@@ -335,7 +479,7 @@ async function handleAuth() {
             }
         }, 500);
     } catch (err) {
-        alert('Failed to get auth URL: ' + err.message);
+        showError('Failed to get auth URL: ' + err.message);
     }
 }
 
@@ -472,13 +616,13 @@ async function calculate() {
         const result = await res.json();
 
         if (result.error) {
-            alert('Error: ' + result.error);
+            showError('Error: ' + result.error);
             return;
         }
 
         displayCalculationResult(result);
     } catch (err) {
-        alert('Calculation failed: ' + err.message);
+        showError('Calculation failed: ' + err.message);
     }
 }
 
@@ -1061,16 +1205,20 @@ function editItem(offerId) {
     const offer = listings.find(o => o.offerId === offerId);
     if (offer) {
         // For now, just show an alert - in Phase 2, open a modal
-        alert(`Edit offer: ${offerId}\nSKU: ${offer.sku}`);
+        showInfo(`Edit offer: ${offerId}, SKU: ${offer.sku}`);
     }
 }
 
 async function bulkResolve() {
     if (selectedItems.size === 0) return;
 
-    if (!confirm(`Update shipping for ${selectedItems.size} items?`)) return;
+    const confirmed = await showConfirm(
+        `Update shipping for ${selectedItems.size} items?`,
+        { title: 'Bulk Update', confirmText: 'Update' }
+    );
+    if (!confirmed) return;
 
-    alert('Bulk update will be implemented in Phase 2');
+    showInfo('Bulk update will be implemented in Phase 2');
     // TODO: Loop through selectedItems and call /api/update-shipping
 }
 
@@ -1176,18 +1324,20 @@ function updateSyncAccountDisplay() {
 
 async function exportData() {
     if (!currentAccount) {
-        alert('No account configured. Restart server with -store flag.');
+        showError('No account configured. Restart server with -store flag.');
         return;
     }
 
     if (!isAuthenticated) {
-        alert('Please connect to eBay first.');
+        showWarning('Please connect to eBay first.');
         return;
     }
 
-    if (!confirm(`Export all data from ${currentAccount.displayName} to database?\n\nThis will save:\n- Business policies\n- Inventory items\n- Offers/Listings`)) {
-        return;
-    }
+    const confirmed = await showConfirm(
+        `Export all data from ${currentAccount.displayName} to database? This will save:\n\n• Business policies\n• Inventory items\n• Offers/Listings`,
+        { title: 'Export to Database', confirmText: 'Export', type: 'warning' }
+    );
+    if (!confirmed) return;
 
     const statusDiv = document.getElementById('syncStatus');
     const statusText = document.getElementById('syncStatusText');
@@ -1206,7 +1356,7 @@ async function exportData() {
         }
 
         statusDiv.style.display = 'none';
-        alert(`Export successful!\n\n${data.message}`);
+        showSuccess(`Export successful! ${data.message}`);
 
         // Reload account info and history
         await loadCurrentAccount();
@@ -1214,7 +1364,7 @@ async function exportData() {
         updateSyncAccountDisplay();
     } catch (err) {
         statusDiv.style.display = 'none';
-        alert('Export failed: ' + err.message);
+        showError('Export failed: ' + err.message);
     } finally {
         exportBtn.disabled = false;
     }
@@ -1224,29 +1374,31 @@ async function importData() {
     const sourceAccountKey = document.getElementById('sourceAccountSelect').value;
 
     if (!sourceAccountKey) {
-        alert('Please select a source account to import from.');
+        showWarning('Please select a source account to import from.');
         return;
     }
 
     if (!currentAccount) {
-        alert('No account configured. Restart server with -store flag.');
+        showError('No account configured. Restart server with -store flag.');
         return;
     }
 
     if (!isAuthenticated) {
-        alert('Please connect to eBay first.');
+        showWarning('Please connect to eBay first.');
         return;
     }
 
     const sourceAccount = availableAccounts.find(a => a.accountKey === sourceAccountKey);
     if (!sourceAccount) {
-        alert('Source account not found.');
+        showError('Source account not found.');
         return;
     }
 
-    if (!confirm(`Import data from ${sourceAccount.displayName} to ${currentAccount.displayName}?\n\nThis will create inventory items in your current eBay account.`)) {
-        return;
-    }
+    const confirmed = await showConfirm(
+        `Import data from ${sourceAccount.displayName} to ${currentAccount.displayName}? This will create inventory items in your current eBay account.`,
+        { title: 'Import from Database', confirmText: 'Import', type: 'warning' }
+    );
+    if (!confirmed) return;
 
     const statusDiv = document.getElementById('syncStatus');
     const statusText = document.getElementById('syncStatusText');
@@ -1269,13 +1421,13 @@ async function importData() {
         }
 
         statusDiv.style.display = 'none';
-        alert(`Import successful!\n\n${data.message}`);
+        showSuccess(`Import successful! ${data.message}`);
 
         // Reload history
         await loadSyncHistory();
     } catch (err) {
         statusDiv.style.display = 'none';
-        alert('Import failed: ' + err.message);
+        showError('Import failed: ' + err.message);
     } finally {
         importBtn.disabled = false;
     }
@@ -1684,17 +1836,20 @@ async function saveTariff(event) {
 
         closeTariffModal();
         await loadReferenceData();
-        alert(`Tariff ${id ? 'updated' : 'created'} successfully`);
+        showSuccess(`Tariff ${id ? 'updated' : 'created'} successfully`);
     } catch (err) {
-        alert(`Error: ${err.message}`);
+        showError(`Error: ${err.message}`);
     }
 }
 
 async function deleteTariff(id) {
     const tariff = window.dbTariffs.find(t => t.id === id);
-    if (!confirm(`Delete tariff for "${tariff.countryName}"? This will fail if any brands reference this country.`)) {
-        return;
-    }
+
+    const confirmed = await showConfirm(
+        `Delete tariff for "${tariff.countryName}"? This will fail if any brands reference this country.`,
+        { title: 'Delete Tariff', confirmText: 'Delete', type: 'danger' }
+    );
+    if (!confirmed) return;
 
     try {
         const res = await secureFetch(`/api/reference/tariffs/${id}`, {
@@ -1707,9 +1862,9 @@ async function deleteTariff(id) {
         }
 
         await loadReferenceData();
-        alert('Tariff deleted successfully');
+        showSuccess('Tariff deleted successfully');
     } catch (err) {
-        alert(`Error: ${err.message}`);
+        showError(`Error: ${err.message}`);
     }
 }
 
@@ -1775,7 +1930,7 @@ async function saveBrand(event) {
     };
 
     if (!data.primaryCoo) {
-        alert('Please select a country of origin');
+        showWarning('Please select a country of origin');
         return;
     }
 
@@ -1796,17 +1951,20 @@ async function saveBrand(event) {
 
         closeBrandModal();
         await loadReferenceData();
-        alert(`Brand ${id ? 'updated' : 'created'} successfully`);
+        showSuccess(`Brand ${id ? 'updated' : 'created'} successfully`);
     } catch (err) {
-        alert(`Error: ${err.message}`);
+        showError(`Error: ${err.message}`);
     }
 }
 
 async function deleteBrand(id) {
     const brand = window.dbBrands.find(b => b.id === id);
-    if (!confirm(`Delete brand "${brand.brandName}"?`)) {
-        return;
-    }
+
+    const confirmed = await showConfirm(
+        `Delete brand "${brand.brandName}"?`,
+        { title: 'Delete Brand', confirmText: 'Delete', type: 'danger' }
+    );
+    if (!confirmed) return;
 
     try {
         const res = await secureFetch(`/api/reference/brands/${id}`, {
@@ -1819,8 +1977,8 @@ async function deleteBrand(id) {
         }
 
         await loadReferenceData();
-        alert('Brand deleted successfully');
+        showSuccess('Brand deleted successfully');
     } catch (err) {
-        alert(`Error: ${err.message}`);
+        showError(`Error: ${err.message}`);
     }
 }
