@@ -491,6 +491,354 @@
             transition: opacity 0.2s;
         }
 
+        /* ========================================
+           MOBILE RESPONSIVE STYLES
+           ======================================== */
+
+        /* Tablets and below (768px) */
+        @media (max-width: 768px) {
+            /* Header - more compact on mobile */
+            header .container {
+                flex-direction: column;
+                gap: 0.75rem;
+                align-items: flex-start;
+            }
+
+            header h1 {
+                font-size: 1.25rem;
+            }
+
+            header h1 img {
+                height: 36px;
+            }
+
+            .auth-status {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                font-size: 0.75rem;
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            /* Hide account details on mobile - too cramped */
+            #accountInfo {
+                display: none !important;
+            }
+
+            #statusText {
+                font-size: 0.75rem;
+            }
+
+            .auth-status .btn {
+                padding: 0.5rem 0.75rem;
+                font-size: 0.8rem;
+                white-space: nowrap;
+            }
+
+
+            .container {
+                padding: 1rem;
+            }
+
+            /* Header */
+            header h1 {
+                font-size: 1.25rem !important;
+            }
+
+            /* Tab navigation */
+            .tab-nav {
+                gap: 0.25rem;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .tab-nav button {
+                flex: 0 0 auto;
+                min-width: 90px;
+                font-size: 0.85rem;
+                padding: 0.625rem 0.75rem;
+            }
+
+            /* Calculator form - stack vertically */
+            .calc-form {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .calc-form .form-group {
+                width: 100%;
+            }
+
+            .calc-form input,
+            .calc-form select {
+                font-size: 16px; /* Prevents iOS zoom on focus */
+                padding: 0.75rem;
+                width: 100%;
+            }
+
+            .calc-form button[type="submit"] {
+                width: 100%;
+                padding: 1rem;
+                font-size: 1.1rem;
+                margin-top: 0.5rem;
+            }
+
+            /* Zone results - collapsible cards */
+            .zone-results {
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+                margin-top: 1.5rem;
+            }
+
+            .zone-card {
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 0.75rem;
+                overflow: hidden;
+            }
+
+            .zone-header {
+                padding: 1rem;
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                user-select: none;
+                -webkit-tap-highlight-color: transparent;
+            }
+
+            .zone-header:active {
+                background: var(--border);
+            }
+
+            .zone-title {
+                font-weight: 600;
+                font-size: 1rem;
+                color: var(--text);
+            }
+
+            .zone-total {
+                font-size: 1.25rem;
+                font-weight: bold;
+                color: var(--primary);
+            }
+
+            .zone-expand-icon {
+                font-size: 0.875rem;
+                color: var(--text-muted);
+                transition: transform 0.2s;
+            }
+
+            .zone-card.expanded .zone-expand-icon {
+                transform: rotate(180deg);
+            }
+
+            .zone-details {
+                max-height: 0;
+                overflow: hidden;
+                transition: max-height 0.3s ease-out;
+            }
+
+            .zone-card.expanded .zone-details {
+                max-height: 500px;
+            }
+
+            .zone-breakdown {
+                padding: 0 1rem 1rem 1rem;
+                border-top: 1px solid var(--border);
+            }
+
+            .breakdown-row {
+                display: flex;
+                justify-content: space-between;
+                padding: 0.5rem 0;
+                font-size: 0.875rem;
+            }
+
+            .breakdown-label {
+                color: var(--text-muted);
+            }
+
+            .breakdown-value {
+                color: var(--text);
+                font-weight: 500;
+            }
+
+            /* Tables - horizontal scroll */
+            .table-container {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            table {
+                min-width: 600px;
+            }
+
+            /* Listings table */
+            #listingsTable th,
+            #listingsTable td {
+                font-size: 0.8rem;
+                padding: 0.5rem;
+            }
+
+            .thumbnail {
+                width: 40px;
+                height: 40px;
+            }
+
+            /* Modals - full width on mobile */
+            .modal-content {
+                max-width: 95% !important;
+                margin: 1rem;
+            }
+
+            /* Reference data tables */
+            .card-body table {
+                font-size: 0.875rem;
+            }
+
+            .card-body th,
+            .card-body td {
+                padding: 0.5rem;
+            }
+
+            /* Reference data tables - horizontal scroll on mobile */
+            .reference-section {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .reference-section table {
+                min-width: 500px;
+                font-size: 0.85rem;
+            }
+
+            .reference-section th,
+            .reference-section td {
+                padding: 0.5rem;
+            }
+
+            .reference-section .btn-icon {
+                font-size: 1rem;
+                padding: 0.25rem;
+            }
+
+            /* Card headers on mobile - stack title and button */
+            .card-header {
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+
+            .card-header h2 {
+                flex: 1 1 100%;
+                margin-bottom: 0.5rem;
+            }
+
+            .card-header .btn {
+                float: none !important;
+                padding: 0.5rem 0.75rem;
+                font-size: 0.85rem;
+            }
+
+            /* Sync tab */
+            .sync-grid {
+                grid-template-columns: 1fr !important;
+            }
+
+            /* Pagination */
+            .pagination {
+                flex-wrap: wrap;
+                gap: 0.25rem;
+            }
+
+            .pagination button {
+                padding: 0.5rem 0.75rem;
+                font-size: 0.85rem;
+            }
+        }
+
+        /* Mobile phones (480px and below) */
+        @media (max-width: 480px) {
+            .container {
+                padding: 0.75rem;
+            }
+
+            header h1 {
+                font-size: 1.1rem !important;
+            }
+
+            header h1 img {
+                height: 32px !important;
+            }
+
+            .tab-nav button {
+                min-width: 75px;
+                font-size: 0.75rem;
+                padding: 0.5rem;
+            }
+
+            .card {
+                padding: 1rem;
+            }
+
+            .card-header h2 {
+                font-size: 1.1rem;
+            }
+
+            /* Even smaller touch targets */
+            .calc-form input,
+            .calc-form select {
+                font-size: 16px;
+                padding: 0.875rem;
+            }
+
+            /* Stack buttons in modals */
+            .modal-content form > div {
+                flex-direction: column !important;
+            }
+
+            .modal-content button {
+                width: 100%;
+            }
+
+            /* Simplified table on very small screens */
+            table {
+                font-size: 0.75rem;
+            }
+
+            th, td {
+                padding: 0.375rem !important;
+            }
+
+            /* Hide less important columns on tiny screens */
+            .hide-mobile {
+                display: none !important;
+            }
+        }
+
+        /* Landscape orientation optimizations */
+        @media (max-height: 500px) and (orientation: landscape) {
+            header {
+                padding: 0.5rem 0;
+            }
+
+            .tab-content {
+                padding: 1rem 0;
+            }
+
+            .calc-form {
+                flex-direction: row;
+                flex-wrap: wrap;
+            }
+
+            .calc-form .form-group {
+                flex: 1 1 45%;
+            }
+        }
+
         /* Toast Notifications */
         .toast-container {
             position: fixed;
@@ -933,10 +1281,12 @@
                     <button class="btn btn-primary" onclick="openAddTariffModal()" style="float: right;">+ Add Country</button>
                 </div>
                 <div class="card-body">
-                    <table id="tariffTable">
-                        <thead><tr><th>Country</th><th>Rate (%)</th><th>Notes</th><th>Actions</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="reference-section">
+                        <table id="tariffTable">
+                            <thead><tr><th>Country</th><th>Rate (%)</th><th>Notes</th><th>Actions</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="card">
@@ -945,19 +1295,23 @@
                     <button class="btn btn-primary" onclick="openAddBrandModal()" style="float: right;">+ Add Brand</button>
                 </div>
                 <div class="card-body">
-                    <table id="brandTable">
-                        <thead><tr><th>Brand</th><th>Primary COO</th><th>Tariff Rate</th><th>Notes</th><th>Actions</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="reference-section">
+                        <table id="brandTable">
+                            <thead><tr><th>Brand</th><th>Primary COO</th><th>Tariff Rate</th><th>Notes</th><th>Actions</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="card">
                 <div class="card-header"><h2>Weight Bands (Zone 3 - USA/Canada) <span style="color: var(--text-muted); font-size: 0.85em;">(Read Only)</span></h2></div>
                 <div class="card-body">
-                    <table id="weightTable">
-                        <thead><tr><th>Band</th><th>Weight Range</th><th>Base Price (AUD)</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="reference-section">
+                        <table id="weightTable">
+                            <thead><tr><th>Band</th><th>Weight Range</th><th>Base Price (AUD)</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>

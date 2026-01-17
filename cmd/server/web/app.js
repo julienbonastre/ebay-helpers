@@ -9,6 +9,11 @@ function escapeHtml(unsafe) {
         .replace(/'/g, '&#039;');
 }
 
+// Detect mobile viewport
+function isMobile() {
+    return window.innerWidth <= 768;
+}
+
 // ============================================================
 // Toast Notification System
 // ============================================================
@@ -158,6 +163,7 @@ function closeConfirm(result) {
 
 // ============================================================
 
+
 // Global session expiry handler
 function handleSessionExpiry() {
     console.log('[SESSION] Session expired - clearing caches and redirecting to login');
@@ -257,6 +263,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupTabs();
     initPageSize();
     initSearchFilter();
+    hideMobileUnsupportedTabs(); // Hide complex tabs on mobile
     await checkAuthStatus();        // Check authentication status first
     await loadCurrentAccount();
     await loadReferenceData();
@@ -267,15 +274,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.history.replaceState({}, '', '/');
         await checkAuthStatus();    // Refresh auth status after OAuth
         await loadCurrentAccount();  // Reload account after OAuth
-        showTab('listings');
-        loadListings();
+        // On mobile, default to calculator; on desktop, show listings
+        showTab(isMobile() ? 'calculator' : 'listings');
+        if (!isMobile()) {
+            loadListings();
+        }
     } else {
-        // Since Listings is the default tab, load it automatically if authenticated
-        if (isAuthenticated) {
+        // On mobile, show calculator by default; on desktop, show listings if authenticated
+        if (isMobile()) {
+            showTab('calculator');
+        } else if (isAuthenticated) {
             loadListings();
         }
     }
 });
+
+// Hide tabs that aren't optimised for mobile
+function hideMobileUnsupportedTabs() {
+    if (isMobile()) {
+        // Hide Listings and Sync tabs on mobile - they're not optimised for small screens
+        const listingsTab = document.querySelector('.tab[data-tab="listings"]');
+        const syncTab = document.querySelector('.tab[data-tab="sync"]');
+
+        if (listingsTab) listingsTab.style.display = 'none';
+        if (syncTab) syncTab.style.display = 'none';
+    }
+}
 
 // Tab handling
 function setupTabs() {
@@ -640,7 +664,18 @@ function displayCalculationResult(result) {
     const breakdownEl = document.getElementById('resultBreakdown');
     const warningBox = document.getElementById('calcWarning');
 
-    // Build multi-zone result display
+    // Check if mobile view
+    if (isMobile()) {
+        renderMobileZoneResults(result, breakdownEl, warningBox);
+    } else {
+        renderDesktopZoneResults(result, breakdownEl, warningBox);
+    }
+
+    resultBox.style.display = 'block';
+}
+
+// Desktop rendering - expanded cards
+function renderDesktopZoneResults(result, breakdownEl, warningBox) {
     let html = '';
 
     // Add COO info at the top
@@ -686,7 +721,6 @@ function displayCalculationResult(result) {
     html += '</div>';
 
     breakdownEl.innerHTML = html;
-    resultBox.style.display = 'block';
 
     // Check if any zone recommends extra cover
     const needsExtraCover = result.zones.some(z => z.warnings.extraCoverRecommended);
@@ -695,6 +729,75 @@ function displayCalculationResult(result) {
         warningBox.style.display = 'block';
     } else {
         warningBox.style.display = 'none';
+    }
+}
+
+// Mobile rendering - collapsible cards
+function renderMobileZoneResults(result, breakdownEl, warningBox) {
+    let html = '';
+
+    // Add COO info at the top
+    if (result.zones.length > 0) {
+        html += `<div style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; color: var(--text-muted);">
+            <strong>COO:</strong> ${result.zones[0].inputs.countryOfOrigin}
+        </div>`;
+    }
+
+    html += '<div style="display: flex; flex-direction: column; gap: 0.75rem;">';
+
+    // Render collapsible zone cards
+    result.zones.forEach((zone, index) => {
+        const b = zone.breakdown;
+        const hasTariffs = zone.hasTariffs;
+        const totalColor = '#06b6d4';
+
+        // Zone header text
+        const warningIcon = hasTariffs ? ' ⚠️' : '';
+        const zoneName = zone.zoneName;
+
+        html += `
+            <div class="zone-card" data-zone-index="${index}">
+                <div class="zone-header" onclick="toggleZoneCard(${index})">
+                    <div>
+                        <div style="font-weight: 600; font-size: 0.95rem;">${zoneName}${warningIcon}</div>
+                        <div style="font-size: 1.25rem; font-weight: bold; color: ${totalColor}; margin-top: 0.25rem;">
+                            $${zone.totalShipping.toFixed(2)} AUD
+                        </div>
+                    </div>
+                    <div class="zone-expand-icon">▼</div>
+                </div>
+                <div class="zone-details">
+                    <div style="padding: 1rem; font-size: 0.875rem; line-height: 1.6; color: var(--text-muted);">
+                        <div><strong>Base Postage:</strong> $${b.ausPostShipping.toFixed(2)}</div>
+                        ${b.extraCover > 0 ? `<div><strong>Extra Cover:</strong> $${b.extraCover.toFixed(2)}</div>` : ''}
+                        ${hasTariffs && b.tariffDuties > 0 ? `<div><strong>Tariff (${(zone.inputs.tariffRate * 100).toFixed(0)}%):</strong> $${b.tariffDuties.toFixed(2)}</div>` : ''}
+                        ${hasTariffs && b.zonosFees > 0 ? `<div><strong>Zonos Fees:</strong> $${b.zonosFees.toFixed(2)}</div>` : ''}
+                        ${hasTariffs ? '<div style="margin-top: 0.5rem; color: var(--warning); font-size: 0.8rem;">⚠️ Tariffs Apply</div>' : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+
+    breakdownEl.innerHTML = html;
+
+    // Check if any zone recommends extra cover
+    const needsExtraCover = result.zones.some(z => z.warnings.extraCoverRecommended);
+    if (needsExtraCover) {
+        warningBox.innerHTML = '⚠️ Extra Cover recommended for $250+ items';
+        warningBox.style.display = 'block';
+    } else {
+        warningBox.style.display = 'none';
+    }
+}
+
+// Toggle zone card expansion on mobile
+function toggleZoneCard(index) {
+    const card = document.querySelector(`.zone-card[data-zone-index="${index}"]`);
+    if (card) {
+        card.classList.toggle('expanded');
     }
 }
 
