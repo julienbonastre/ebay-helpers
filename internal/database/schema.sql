@@ -157,6 +157,38 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at DATETIME NOT NULL            -- When session expires (30 days default)
 );
 
+-- Postal zones - defines shipping zones with handling fees and tariff settings
+CREATE TABLE IF NOT EXISTS postal_zones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    zone_id TEXT NOT NULL UNIQUE,           -- e.g., "1-New Zealand", "3-USA & Canada"
+    zone_name TEXT NOT NULL,                -- Display name
+    handling_fee_percent REAL DEFAULT 0.02, -- 2% handling fee
+    has_tariffs BOOLEAN DEFAULT false,      -- Whether this zone has tariffs (USA only)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Postal rates - weight-based pricing for each zone
+CREATE TABLE IF NOT EXISTS postal_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    zone_id TEXT NOT NULL,
+    weight_band TEXT NOT NULL,              -- "XSmall", "Small", "Medium", "Large", "XLarge"
+    max_weight_grams INTEGER NOT NULL,
+    base_price_aud REAL NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (zone_id) REFERENCES postal_zones(zone_id),
+    UNIQUE(zone_id, weight_band)
+);
+
+-- Discount bands - tier-based discounts for each zone
+CREATE TABLE IF NOT EXISTS discount_bands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    zone_id TEXT NOT NULL,
+    band_level INTEGER NOT NULL,            -- 0-5
+    discount_percent REAL NOT NULL,         -- 0.20 for 20%
+    FOREIGN KEY (zone_id) REFERENCES postal_zones(zone_id),
+    UNIQUE(zone_id, band_level)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_inventory_sku ON inventory_items(account_id, sku);
 CREATE INDEX IF NOT EXISTS idx_offers_sku ON offers(account_id, sku);
@@ -165,3 +197,4 @@ CREATE INDEX IF NOT EXISTS idx_sync_history_account ON sync_history(account_id, 
 CREATE INDEX IF NOT EXISTS idx_brand_coo_brand ON brand_coo_mappings(brand_name);
 CREATE INDEX IF NOT EXISTS idx_tariff_country ON tariff_rates(country_name);
 CREATE INDEX IF NOT EXISTS idx_enriched_items_at ON enriched_items(enriched_at);
+CREATE INDEX IF NOT EXISTS idx_postal_rates_zone ON postal_rates(zone_id, weight_band);
