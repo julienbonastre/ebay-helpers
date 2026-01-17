@@ -123,3 +123,123 @@ Edit `internal/calculator/calculator.go` → `brandCountryMap`
 
 ### Modifying tariff rates
 Edit `internal/database/schema.sql` → `tariff_countries` table defaults
+
+---
+
+## Security Review Checklist
+
+**CRITICAL: Claude must check these before committing any code changes**
+
+### Frontend JavaScript Security
+
+#### XSS Prevention (MANDATORY)
+- ❌ **NEVER** use `innerHTML` with user/database data without escaping
+- ✅ **ALWAYS** use `escapeHtml()` function for dynamic content
+- ✅ **ALWAYS** create `<option>` elements programmatically with `textContent`, never via template literals
+- ⚠️ **AUDIT** all template literals (backticks) that generate HTML - escape ALL variables
+
+**Examples**:
+```javascript
+// ❌ DANGEROUS - XSS vulnerability
+element.innerHTML = `<div>${userData}</div>`;
+
+// ✅ SAFE - Escaped
+element.innerHTML = `<div>${escapeHtml(userData)}</div>`;
+
+// ✅ BEST - Programmatic DOM manipulation
+const div = document.createElement('div');
+div.textContent = userData;
+element.appendChild(div);
+```
+
+#### Event Handlers
+- ❌ **AVOID** inline `onclick` attributes in HTML strings
+- ✅ **USE** event delegation on parent elements
+- Reason: Enables stricter CSP without `unsafe-inline`
+
+#### State Management
+- ⚠️ **CHECK** for global variable conflicts (`window.x`)
+- ⚠️ **CHECK** for race conditions in Promise-based modals/dialogs
+- ✅ **PREFER** scoped variables or single namespace object
+
+### Backend Go Security
+
+#### Input Validation (MANDATORY)
+- ✅ **ALWAYS** validate foreign key references exist before INSERT/UPDATE
+- ✅ **ALWAYS** use parameterized queries (never string concatenation)
+- ✅ **ALWAYS** validate URL parameters/path variables
+
+**Example**:
+```go
+// ❌ MISSING VALIDATION
+func createBrand(primaryCoo string) {
+    db.Exec("INSERT INTO brands (primary_coo) VALUES (?)", primaryCoo)
+}
+
+// ✅ WITH VALIDATION
+func createBrand(primaryCoo string) error {
+    exists, err := db.TariffCountryExists(primaryCoo)
+    if err != nil {
+        return err
+    }
+    if !exists {
+        return fmt.Errorf("invalid country: %s", primaryCoo)
+    }
+    // Proceed with insert
+}
+```
+
+#### URL Routing
+- ⚠️ **BRITTLE**: Current manual path parsing (`r.URL.Path[len("/api/..."):]`)
+- ✅ **BETTER**: Use routing library (`chi`, `gorilla/mux`) for production code
+- For now: Document this as known technical debt
+
+### Code Quality Standards
+
+#### CSS/Styling
+- ⚠️ **MINIMIZE** inline styles - extract to CSS files where possible
+- ⚠️ **AVOID** `!important` - increase specificity instead
+- ✅ **USE** CSS variables for colours, not hardcoded hex values
+
+#### Maintainability
+- ⚠️ **AVOID** hardcoded magic values (zone IDs, paths, colours)
+- ✅ **USE** constants or configuration
+- ⚠️ **CHECK** for code duplication - extract to shared functions
+
+### Pre-Commit Security Questions
+
+Before committing code changes, Claude should ask:
+
+1. **Does this PR use `innerHTML`?**
+   - If yes, is ALL dynamic data escaped with `escapeHtml()`?
+
+2. **Does this PR create `<select>` dropdowns with database data?**
+   - If yes, are options created programmatically with `createElement()`?
+
+3. **Does this PR accept user input in backend handlers?**
+   - If yes, is foreign key validation implemented?
+
+4. **Does this PR use template literals to generate HTML?**
+   - If yes, are ALL variables escaped?
+
+5. **Does this PR add inline event handlers?**
+   - If yes, can they be replaced with event delegation?
+
+If answer to ANY security question is NO, **DO NOT COMMIT** until fixed.
+
+---
+
+## Known Technical Debt
+
+These issues are acknowledged but deferred for architectural reasons:
+
+1. **CSP `unsafe-inline`** - Required due to inline `<style>` blocks and `onclick` handlers
+   - **Mitigation**: Minimize usage, plan migration to external CSS + event delegation
+
+2. **Vanilla JS architecture** - No framework means manual XSS prevention
+   - **Mitigation**: Strict escapeHtml() usage, consider Htmx/Alpine.js migration
+
+3. **Manual URL routing** - String path parsing instead of routing library
+   - **Mitigation**: Careful testing, plan chi/mux migration
+
+These should NOT be repeated in new code - use better patterns going forward.
