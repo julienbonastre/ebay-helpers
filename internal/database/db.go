@@ -506,6 +506,23 @@ func (db *DB) UpdateTariffRate(id int64, countryName string, rate float64, notes
 	return err
 }
 
+// TariffCountryExists checks if a country exists in the tariff_rates table
+// Used for foreign key validation before creating/updating brands
+func (db *DB) TariffCountryExists(countryName string) (bool, error) {
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM tariff_rates
+		WHERE LOWER(country_name) = LOWER(?)
+	`, countryName).Scan(&count)
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
 // DeleteTariffRate deletes a tariff rate
 func (db *DB) DeleteTariffRate(id int64) error {
 	// Check if any brands reference this country

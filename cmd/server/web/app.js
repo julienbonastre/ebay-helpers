@@ -94,9 +94,7 @@ function showInfo(message, duration) {
 // Confirmation Modal System
 // ============================================================
 
-let confirmResolve = null;
-let currentEscapeHandler = null;
-
+// RACE CONDITION FIX: Removed global confirmResolve - now scoped per call
 function showConfirm(message, options = {}) {
     const {
         title = 'Confirm Action',
@@ -106,59 +104,78 @@ function showConfirm(message, options = {}) {
     } = options;
 
     return new Promise((resolve) => {
-        confirmResolve = resolve;
+        // Scoped resolve function - prevents race condition
+        let localResolve = resolve;
+        let isResolved = false;
 
         const overlay = document.getElementById('confirmOverlay');
         const icon = document.getElementById('confirmIcon');
         const titleEl = document.getElementById('confirmTitle');
         const messageEl = document.getElementById('confirmMessage');
         const confirmBtn = document.getElementById('confirmButton');
+        const cancelBtn = document.getElementById('confirmCancelButton');
 
         // Set content
         titleEl.textContent = title;
         messageEl.textContent = message;
         confirmBtn.textContent = confirmText;
+        cancelBtn.textContent = cancelText;
 
         // Set icon and button color
         icon.className = `confirm-icon confirm-icon-${type}`;
         icon.textContent = type === 'danger' ? '🗑️' : '⚠️';
         confirmBtn.className = type === 'danger' ? 'btn btn-danger' : 'btn btn-primary';
 
-        // Show modal
-        overlay.classList.add('active');
+        // Handler to resolve and cleanup
+        const resolveAndCleanup = (result) => {
+            if (isResolved) return; // Prevent double resolution
+            isResolved = true;
 
-        // Close on backdrop click
-        overlay.onclick = (e) => {
+            overlay.classList.remove('active');
+
+            // Remove all event listeners
+            confirmBtn.removeEventListener('click', handleConfirm);
+            cancelBtn.removeEventListener('click', handleCancel);
+            overlay.removeEventListener('click', handleBackdrop);
+            document.removeEventListener('keydown', handleEscape);
+
+            // Resolve promise
+            localResolve(result);
+        };
+
+        // Event handlers
+        const handleConfirm = () => resolveAndCleanup(true);
+        const handleCancel = () => resolveAndCleanup(false);
+
+        const handleBackdrop = (e) => {
             if (e.target === overlay) {
-                closeConfirm(false);
+                resolveAndCleanup(false);
             }
         };
 
-        // Close on Escape key
         const handleEscape = (e) => {
             if (e.key === 'Escape') {
-                closeConfirm(false);
+                resolveAndCleanup(false);
             }
         };
-        currentEscapeHandler = handleEscape;
+
+        // Attach event listeners
+        confirmBtn.addEventListener('click', handleConfirm);
+        cancelBtn.addEventListener('click', handleCancel);
+        overlay.addEventListener('click', handleBackdrop);
         document.addEventListener('keydown', handleEscape);
+
+        // Show modal
+        overlay.classList.add('active');
     });
 }
 
+// Legacy closeConfirm for onclick handlers in HTML (if any)
 function closeConfirm(result) {
     const overlay = document.getElementById('confirmOverlay');
     overlay.classList.remove('active');
-
-    // Remove the escape handler if it exists
-    if (currentEscapeHandler) {
-        document.removeEventListener('keydown', currentEscapeHandler);
-        currentEscapeHandler = null;
-    }
-
-    if (confirmResolve) {
-        confirmResolve(result);
-        confirmResolve = null;
-    }
+    // Note: This legacy function doesn't resolve promises properly
+    // All new code should use the scoped handlers in showConfirm()
 }
 
 // ============================================================
@@ -932,7 +949,7 @@ function applyFiltersAndSort() {
         }
 
         switch (column) {
-            case 'offerId':
+            case 'offerId': {
                 // Use BigInt for large item IDs to avoid precision issues
                 aVal = BigInt(a.offerId || '0');
                 bVal = BigInt(b.offerId || '0');
@@ -940,6 +957,7 @@ function applyFiltersAndSort() {
                 if (aVal === bVal) return 0;
                 const result = aVal > bVal ? 1 : -1;
                 return direction === 'asc' ? result : -result;
+            }
             case 'title':
                 aVal = (a.title || '').toLowerCase();
                 bVal = (b.title || '').toLowerCase();

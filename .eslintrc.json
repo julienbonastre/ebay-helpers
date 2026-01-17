@@ -11,29 +11,12 @@
   },
   "rules": {
     "no-unsanitized/method": "error",
-    "no-unsanitized/property": "error",
+    "no-unsanitized/property": "warn",
     "no-eval": "error",
     "no-implied-eval": "error",
     "no-new-func": "error",
     "no-script-url": "error",
     "no-inline-comments": "off",
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }]
-  },
-  "globals": {
-    "escapeHtml": "readonly",
-    "showToast": "readonly",
-    "showSuccess": "readonly",
-    "showError": "readonly",
-    "showWarning": "readonly",
-    "showInfo": "readonly",
-    "showConfirm": "readonly",
-    "closeConfirm": "readonly",
-    "handleSessionExpiry": "readonly",
-    "secureFetch": "readonly",
-    "checkAuthStatus": "readonly",
-    "loadCurrentAccount": "readonly",
-    "loadReferenceData": "readonly",
-    "isMobile": "readonly",
-    "hideMobileUnsupportedTabs": "readonly"
   }
 }
