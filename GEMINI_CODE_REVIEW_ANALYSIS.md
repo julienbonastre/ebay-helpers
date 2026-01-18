@@ -222,8 +222,8 @@ Gemini Code Assist reviewed 5 out of 6 closed PRs in the julienbonastre/ebay-hel
 
 2. **Hardcoded absolute paths in development plan**
 
-   - **Location**: `DEVELOPMENT_PLAN.md` - `/Users/julien/...`
-   - **Issue**: User-specific paths not portable for other developers
+   - **Location**: `DEVELOPMENT_PLAN.md`
+   - **Issue**: User-specific paths not portable for other developers (FIXED)
    - **Severity**: MEDIUM
    - **Recommendation**: Use placeholders like `<path-to-repo>` or relative paths
    - **Status**: ❌ Not addressed
@@ -372,8 +372,8 @@ Gemini Code Assist reviewed 5 out of 6 closed PRs in the julienbonastre/ebay-hel
 
 1. **Information leak in development plan**
 
-   - **Location**: `DEVELOPMENT_PLAN.md` - `/Users/julien/...`
-   - **Issue**: Absolute local paths expose username, not portable
+   - **Location**: `DEVELOPMENT_PLAN.md`
+   - **Issue**: Absolute local paths expose username, not portable (FIXED)
    - **Severity**: MEDIUM
    - **Recommendation**: Use placeholders like `<path-to-your-repo>`
    - **Status**: ❌ Not addressed
