@@ -19,14 +19,14 @@ import (
 const (
 	// Sandbox URLs
 	SandboxAuthURL         = "https://auth.sandbox.ebay.com/oauth2/authorize"
-	SandboxTokenURL        = "https://api.sandbox.ebay.com/identity/v1/oauth2/token"
+	SandboxOAuthURL        = "https://api.sandbox.ebay.com/identity/v1/oauth2/token"
 	SandboxAPIBaseURL      = "https://api.sandbox.ebay.com"            // For Sell APIs
 	SandboxCommerceBaseURL = "https://apiz.sandbox.ebay.com"           // For Commerce APIs
 	SandboxTradingAPIURL   = "https://api.sandbox.ebay.com/ws/api.dll" // For Trading API (XML)
 
 	// Production URLs
 	ProductionAuthURL         = "https://auth.ebay.com/oauth2/authorize"
-	ProductionTokenURL        = "https://api.ebay.com/identity/v1/oauth2/token"
+	ProductionOAuthURL        = "https://api.ebay.com/identity/v1/oauth2/token"
 	ProductionAPIBaseURL      = "https://api.ebay.com"            // For Sell APIs
 	ProductionCommerceBaseURL = "https://apiz.ebay.com"           // For Commerce APIs (note the 'z')
 	ProductionTradingAPIURL   = "https://api.ebay.com/ws/api.dll" // For Trading API (XML)
@@ -57,13 +57,13 @@ func NewClient(cfg Config) *Client {
 	var authURL, tokenURL, baseURL, commerceBaseURL, tradingAPIURL string
 	if cfg.Sandbox {
 		authURL = SandboxAuthURL
-		tokenURL = SandboxTokenURL
+		tokenURL = SandboxOAuthURL
 		baseURL = SandboxAPIBaseURL
 		commerceBaseURL = SandboxCommerceBaseURL
 		tradingAPIURL = SandboxTradingAPIURL
 	} else {
 		authURL = ProductionAuthURL
-		tokenURL = ProductionTokenURL
+		tokenURL = ProductionOAuthURL
 		baseURL = ProductionAPIBaseURL
 		commerceBaseURL = ProductionCommerceBaseURL
 		tradingAPIURL = ProductionTradingAPIURL
