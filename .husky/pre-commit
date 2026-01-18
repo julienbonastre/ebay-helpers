@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run lint-staged for JavaScript and Go files
+npx lint-staged
+
+# Run security checks on Go files
+echo "Running go vet..."
+go vet ./... || {
+    echo "❌ go vet found issues. Fix them before committing."
+    exit 1
+}
+
+echo "✅ Pre-commit checks passed!"

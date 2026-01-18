@@ -1,0 +1,31 @@
+{
+  "name": "ebay-postage-helper",
+  "version": "1.0.0",
+  "description": "eBay Postage Helper - Security Hardened",
+  "scripts": {
+    "lint": "eslint cmd/server/web/*.js",
+    "lint:fix": "eslint cmd/server/web/*.js --fix",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "eslint-plugin-no-unsanitized": "^4.0.2",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0"
+  },
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix"
+    ],
+    "*.go": [
+      "gofmt -w",
+      "go vet"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/julienbonastre/ebay-helpers"
+  },
+  "author": "Julien Bonastre",
+  "license": "MIT"
+}

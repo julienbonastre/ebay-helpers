@@ -1,3 +1,4 @@
+// Package ebay provides eBay API client functionality for Trading API, Browse API, and OAuth 2.0
 package ebay
 
 import (
@@ -17,18 +18,18 @@ import (
 
 const (
 	// Sandbox URLs
-	SandboxAuthURL          = "https://auth.sandbox.ebay.com/oauth2/authorize"
-	SandboxTokenURL         = "https://api.sandbox.ebay.com/identity/v1/oauth2/token"
-	SandboxAPIBaseURL       = "https://api.sandbox.ebay.com"        // For Sell APIs
-	SandboxCommerceBaseURL  = "https://apiz.sandbox.ebay.com"       // For Commerce APIs
-	SandboxTradingAPIURL    = "https://api.sandbox.ebay.com/ws/api.dll" // For Trading API (XML)
+	SandboxAuthURL         = "https://auth.sandbox.ebay.com/oauth2/authorize"
+	SandboxOAuthURL        = "https://api.sandbox.ebay.com/identity/v1/oauth2/token"
+	SandboxAPIBaseURL      = "https://api.sandbox.ebay.com"            // For Sell APIs
+	SandboxCommerceBaseURL = "https://apiz.sandbox.ebay.com"           // For Commerce APIs
+	SandboxTradingAPIURL   = "https://api.sandbox.ebay.com/ws/api.dll" // For Trading API (XML)
 
 	// Production URLs
 	ProductionAuthURL         = "https://auth.ebay.com/oauth2/authorize"
-	ProductionTokenURL        = "https://api.ebay.com/identity/v1/oauth2/token"
-	ProductionAPIBaseURL      = "https://api.ebay.com"                // For Sell APIs
-	ProductionCommerceBaseURL = "https://apiz.ebay.com"             // For Commerce APIs (note the 'z')
-	ProductionTradingAPIURL   = "https://api.ebay.com/ws/api.dll"   // For Trading API (XML)
+	ProductionOAuthURL        = "https://api.ebay.com/identity/v1/oauth2/token"
+	ProductionAPIBaseURL      = "https://api.ebay.com"            // For Sell APIs
+	ProductionCommerceBaseURL = "https://apiz.ebay.com"           // For Commerce APIs (note the 'z')
+	ProductionTradingAPIURL   = "https://api.ebay.com/ws/api.dll" // For Trading API (XML)
 )
 
 // Config holds eBay API configuration
@@ -46,9 +47,9 @@ type Client struct {
 	httpClient      *http.Client
 	oauthConfig     *oauth2.Config
 	token           *oauth2.Token
-	baseURL         string  // For Sell APIs (api.ebay.com)
-	commerceBaseURL string  // For Commerce APIs (apiz.ebay.com)
-	tradingAPIURL   string  // For Trading API (XML-based)
+	baseURL         string // For Sell APIs (api.ebay.com)
+	commerceBaseURL string // For Commerce APIs (apiz.ebay.com)
+	tradingAPIURL   string // For Trading API (XML-based)
 }
 
 // NewClient creates a new eBay API client
@@ -56,13 +57,13 @@ func NewClient(cfg Config) *Client {
 	var authURL, tokenURL, baseURL, commerceBaseURL, tradingAPIURL string
 	if cfg.Sandbox {
 		authURL = SandboxAuthURL
-		tokenURL = SandboxTokenURL
+		tokenURL = SandboxOAuthURL
 		baseURL = SandboxAPIBaseURL
 		commerceBaseURL = SandboxCommerceBaseURL
 		tradingAPIURL = SandboxTradingAPIURL
 	} else {
 		authURL = ProductionAuthURL
-		tokenURL = ProductionTokenURL
+		tokenURL = ProductionOAuthURL
 		baseURL = ProductionAPIBaseURL
 		commerceBaseURL = ProductionCommerceBaseURL
 		tradingAPIURL = ProductionTradingAPIURL
@@ -223,11 +224,11 @@ func (c *Client) doCommerceRequest(ctx context.Context, method, path string, bod
 
 // User represents an eBay user
 type User struct {
-	UserID       string `json:"userId"`       // Immutable user ID
-	Username     string `json:"username"`     // eBay username
-	Email        string `json:"email"`        // User's email (if available)
-	FirstName    string `json:"firstName"`    // First name
-	LastName     string `json:"lastName"`     // Last name
+	UserID        string `json:"userId"`        // Immutable user ID
+	Username      string `json:"username"`      // eBay username
+	Email         string `json:"email"`         // User's email (if available)
+	FirstName     string `json:"firstName"`     // First name
+	LastName      string `json:"lastName"`      // Last name
 	MarketplaceID string `json:"marketplaceId"` // Primary marketplace
 }
 
@@ -266,11 +267,11 @@ func (c *Client) GetUser(ctx context.Context) (*User, error) {
 
 // InventoryItem represents an eBay inventory item
 type InventoryItem struct {
-	SKU         string            `json:"sku"`
-	Locale      string            `json:"locale,omitempty"`
-	Product     *Product          `json:"product,omitempty"`
-	Condition   string            `json:"condition,omitempty"`
-	Availability *Availability    `json:"availability,omitempty"`
+	SKU          string        `json:"sku"`
+	Locale       string        `json:"locale,omitempty"`
+	Product      *Product      `json:"product,omitempty"`
+	Condition    string        `json:"condition,omitempty"`
+	Availability *Availability `json:"availability,omitempty"`
 }
 
 // Product holds product details
@@ -293,15 +294,15 @@ type ShipToLocation struct {
 
 // Offer represents an eBay listing offer
 type Offer struct {
-	OfferID             string              `json:"offerId,omitempty"`
-	SKU                 string              `json:"sku,omitempty"`
-	MarketplaceID       string              `json:"marketplaceId,omitempty"`
-	Format              string              `json:"format,omitempty"`
-	ListingDescription  string              `json:"listingDescription,omitempty"`
-	PricingSummary      *PricingSummary     `json:"pricingSummary,omitempty"`
-	ListingPolicies     *ListingPolicies    `json:"listingPolicies,omitempty"`
-	Status              string              `json:"status,omitempty"`
-	Listing             *ListingDetails     `json:"listing,omitempty"`
+	OfferID            string           `json:"offerId,omitempty"`
+	SKU                string           `json:"sku,omitempty"`
+	MarketplaceID      string           `json:"marketplaceId,omitempty"`
+	Format             string           `json:"format,omitempty"`
+	ListingDescription string           `json:"listingDescription,omitempty"`
+	PricingSummary     *PricingSummary  `json:"pricingSummary,omitempty"`
+	ListingPolicies    *ListingPolicies `json:"listingPolicies,omitempty"`
+	Status             string           `json:"status,omitempty"`
+	Listing            *ListingDetails  `json:"listing,omitempty"`
 }
 
 // PricingSummary holds pricing info
@@ -317,10 +318,10 @@ type Amount struct {
 
 // ListingPolicies holds policy references
 type ListingPolicies struct {
-	FulfillmentPolicyID    string                  `json:"fulfillmentPolicyId,omitempty"`
-	PaymentPolicyID        string                  `json:"paymentPolicyId,omitempty"`
-	ReturnPolicyID         string                  `json:"returnPolicyId,omitempty"`
-	ShippingCostOverrides  []ShippingCostOverride  `json:"shippingCostOverrides,omitempty"`
+	FulfillmentPolicyID   string                 `json:"fulfillmentPolicyId,omitempty"`
+	PaymentPolicyID       string                 `json:"paymentPolicyId,omitempty"`
+	ReturnPolicyID        string                 `json:"returnPolicyId,omitempty"`
+	ShippingCostOverrides []ShippingCostOverride `json:"shippingCostOverrides,omitempty"`
 }
 
 // ShippingCostOverride allows overriding shipping costs
@@ -372,13 +373,13 @@ type ShippingOption struct {
 
 // ShippingService holds service details
 type ShippingService struct {
-	SortOrderID      int     `json:"sortOrderId,omitempty"`
-	ShippingCarrier  string  `json:"shippingCarrierCode,omitempty"`
-	ShippingService  string  `json:"shippingServiceCode,omitempty"`
-	ShippingCost     *Amount `json:"shippingCost,omitempty"`
-	AdditionalCost   *Amount `json:"additionalShippingCost,omitempty"`
-	FreeShipping     bool    `json:"freeShipping,omitempty"`
-	ShipToLocations  *ShipToLocations `json:"shipToLocations,omitempty"`
+	SortOrderID     int              `json:"sortOrderId,omitempty"`
+	ShippingCarrier string           `json:"shippingCarrierCode,omitempty"`
+	ShippingService string           `json:"shippingServiceCode,omitempty"`
+	ShippingCost    *Amount          `json:"shippingCost,omitempty"`
+	AdditionalCost  *Amount          `json:"additionalShippingCost,omitempty"`
+	FreeShipping    bool             `json:"freeShipping,omitempty"`
+	ShipToLocations *ShipToLocations `json:"shipToLocations,omitempty"`
 }
 
 // ShipToLocations holds destination info
@@ -421,12 +422,12 @@ type PaymentPoliciesResponse struct {
 
 // ReturnPolicy represents a return policy
 type ReturnPolicy struct {
-	ReturnPolicyID           string       `json:"returnPolicyId,omitempty"`
-	Name                     string       `json:"name,omitempty"`
-	MarketplaceID            string       `json:"marketplaceId,omitempty"`
-	ReturnsAccepted          bool         `json:"returnsAccepted,omitempty"`
-	ReturnPeriod             *TimeDuration `json:"returnPeriod,omitempty"`
-	ReturnShippingCostPayer  string       `json:"returnShippingCostPayer,omitempty"`
+	ReturnPolicyID          string        `json:"returnPolicyId,omitempty"`
+	Name                    string        `json:"name,omitempty"`
+	MarketplaceID           string        `json:"marketplaceId,omitempty"`
+	ReturnsAccepted         bool          `json:"returnsAccepted,omitempty"`
+	ReturnPeriod            *TimeDuration `json:"returnPeriod,omitempty"`
+	ReturnShippingCostPayer string        `json:"returnShippingCostPayer,omitempty"`
 }
 
 // TimeDuration represents a time duration
@@ -631,16 +632,16 @@ func (c *Client) UpdateOfferShipping(ctx context.Context, offerID string, overri
 
 // TradingItem represents an item from GetMyeBaySelling (simplified)
 type TradingItem struct {
-	ItemID          string
-	SKU             string
-	Title           string
-	Price           string
-	Currency        string
-	Quantity        int
-	QuantitySold    int
-	ImageURL        string
-	Brand           string
-	ShippingCost    string
+	ItemID           string
+	SKU              string
+	Title            string
+	Price            string
+	Currency         string
+	Quantity         int
+	QuantitySold     int
+	ImageURL         string
+	Brand            string
+	ShippingCost     string
 	ShippingCurrency string
 }
 
@@ -651,13 +652,13 @@ type GetMyeBaySellingResponse struct {
 	ActiveList struct {
 		ItemArray struct {
 			Items []struct {
-				ItemID        string `xml:"ItemID"`
-				SKU           string `xml:"SKU"`
-				Title         string `xml:"Title"`
-				Quantity      int    `xml:"Quantity"`
+				ItemID         string `xml:"ItemID"`
+				SKU            string `xml:"SKU"`
+				Title          string `xml:"Title"`
+				Quantity       int    `xml:"Quantity"`
 				PictureDetails struct {
-					GalleryURL    string `xml:"GalleryURL"`
-					PictureURL    []string `xml:"PictureURL"`
+					GalleryURL string   `xml:"GalleryURL"`
+					PictureURL []string `xml:"PictureURL"`
 				} `xml:"PictureDetails"`
 				ItemSpecifics struct {
 					NameValueList []struct {
@@ -706,8 +707,8 @@ type GetItemResponse struct {
 	XMLName xml.Name `xml:"GetItemResponse"`
 	Ack     string   `xml:"Ack"`
 	Item    struct {
-		ItemID          string `xml:"ItemID"`
-		ItemSpecifics   struct {
+		ItemID        string `xml:"ItemID"`
+		ItemSpecifics struct {
 			NameValueList []struct {
 				Name  string `xml:"Name"`
 				Value string `xml:"Value"`
@@ -901,7 +902,7 @@ func (c *Client) GetItem(ctx context.Context, itemID string) (brand, shippingCos
 		if len(xmlResp.Errors) > 0 {
 			errMsg := fmt.Sprintf("eBay API error %s: %s", xmlResp.Errors[0].ErrorCode, xmlResp.Errors[0].LongMessage)
 			log.Printf("[GET-ITEM-ERROR] %s", errMsg)
-			return "", "", "", "", nil, fmt.Errorf(errMsg)
+			return "", "", "", "", nil, fmt.Errorf("%s", errMsg)
 		}
 		return "", "", "", "", nil, fmt.Errorf("API returned Ack=%s", xmlResp.Ack)
 	}
@@ -922,12 +923,12 @@ func (c *Client) GetItem(ctx context.Context, itemID string) (brand, shippingCos
 		// Common field names: "Country/Region of Manufacture", "Country of Manufacture", "Country of Origin"
 		// eBay also uses "Materials sourced from" for COO in some listings
 		if specNameLower == "country/region of manufacture" ||
-		   specNameLower == "country of manufacture" ||
-		   specNameLower == "country of origin" ||
-		   specNameLower == "country/region of origin" ||
-		   specNameLower == "materials sourced from" ||
-		   strings.Contains(specNameLower, "country") && strings.Contains(specNameLower, "origin") ||
-		   strings.Contains(specNameLower, "country") && strings.Contains(specNameLower, "manufacture") {
+			specNameLower == "country of manufacture" ||
+			specNameLower == "country of origin" ||
+			specNameLower == "country/region of origin" ||
+			specNameLower == "materials sourced from" ||
+			strings.Contains(specNameLower, "country") && strings.Contains(specNameLower, "origin") ||
+			strings.Contains(specNameLower, "country") && strings.Contains(specNameLower, "manufacture") {
 			coo = spec.Value
 			log.Printf("[GET-ITEM-DEBUG] Item %s: Country of Origin = %s (field: %s)", itemID, coo, spec.Name)
 		}
@@ -1061,7 +1062,7 @@ func (c *Client) GetMyeBaySelling(ctx context.Context, pageNumber, entriesPerPag
 		if len(xmlResp.Errors) > 0 {
 			errMsg := fmt.Sprintf("eBay API error %s: %s", xmlResp.Errors[0].ErrorCode, xmlResp.Errors[0].LongMessage)
 			log.Printf("[TRADING-API-ERROR] %s", errMsg)
-			return nil, 0, fmt.Errorf(errMsg)
+			return nil, 0, fmt.Errorf("%s", errMsg)
 		}
 		return nil, 0, fmt.Errorf("API returned Ack=%s", xmlResp.Ack)
 	}
@@ -1138,16 +1139,16 @@ func (c *Client) GetMyeBaySelling(ctx context.Context, pageNumber, entriesPerPag
 		}
 
 		item := TradingItem{
-			ItemID:          xmlItem.ItemID,
-			SKU:             xmlItem.SKU,
-			Title:           xmlItem.Title,
-			Price:           xmlItem.SellingStatus.CurrentPrice.Value,
-			Currency:        xmlItem.SellingStatus.CurrentPrice.CurrencyID,
-			Quantity:        xmlItem.Quantity,
-			QuantitySold:    xmlItem.SellingStatus.QuantitySold,
-			ImageURL:        imageURL,
-			Brand:           brand,
-			ShippingCost:    shippingCost,
+			ItemID:           xmlItem.ItemID,
+			SKU:              xmlItem.SKU,
+			Title:            xmlItem.Title,
+			Price:            xmlItem.SellingStatus.CurrentPrice.Value,
+			Currency:         xmlItem.SellingStatus.CurrentPrice.CurrencyID,
+			Quantity:         xmlItem.Quantity,
+			QuantitySold:     xmlItem.SellingStatus.QuantitySold,
+			ImageURL:         imageURL,
+			Brand:            brand,
+			ShippingCost:     shippingCost,
 			ShippingCurrency: shippingCurrency,
 		}
 		items = append(items, item)

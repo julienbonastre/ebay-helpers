@@ -1166,6 +1166,18 @@ func (h *Handler) createBrand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SECURITY FIX: Validate foreign key - ensure country exists in tariff_rates
+	exists, err := h.db.TariffCountryExists(req.PrimaryCOO)
+	if err != nil {
+		log.Printf("Error checking tariff country: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to validate country")
+		return
+	}
+	if !exists {
+		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Invalid country: %s does not exist in tariff rates", req.PrimaryCOO))
+		return
+	}
+
 	id, err := h.db.CreateBrandCOOMapping(req.BrandName, req.PrimaryCOO, req.Notes)
 	if err != nil {
 		log.Printf("Error creating brand: %v", err)
@@ -1196,6 +1208,18 @@ func (h *Handler) updateBrand(w http.ResponseWriter, r *http.Request, id int64) 
 	}
 	if req.PrimaryCOO == "" {
 		errorResponse(w, http.StatusBadRequest, "Primary COO required")
+		return
+	}
+
+	// SECURITY FIX: Validate foreign key - ensure country exists in tariff_rates
+	exists, err := h.db.TariffCountryExists(req.PrimaryCOO)
+	if err != nil {
+		log.Printf("Error checking tariff country: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to validate country")
+		return
+	}
+	if !exists {
+		errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Invalid country: %s does not exist in tariff rates", req.PrimaryCOO))
 		return
 	}
 

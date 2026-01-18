@@ -13,15 +13,15 @@ This document outlines the implementation plan for 5 major features to be develo
 First, commit this plan to a dedicated branch that all feature branches will derive from:
 
 ```bash
-cd /Users/julien/src/julienbonastre/ebay-helpers
+cd ebay-helpers
 git checkout main
 git pull origin main
 
 # Create and switch to plan base branch
 git checkout -b feature/development-plan-2026
 
-# Copy plan file into repo
-cp /Users/julien/.claude/plans/cosmic-questing-garden.md ./DEVELOPMENT_PLAN.md
+# Copy plan file into repo (if using Claude Code plan mode)
+# Plan will already be in your workspace
 
 # Commit the plan
 git add DEVELOPMENT_PLAN.md

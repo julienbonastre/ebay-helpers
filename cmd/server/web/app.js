@@ -94,9 +94,7 @@ function showInfo(message, duration) {
 // Confirmation Modal System
 // ============================================================
 
-let confirmResolve = null;
-let currentEscapeHandler = null;
-
+// RACE CONDITION FIX: Removed global confirmResolve - now scoped per call
 function showConfirm(message, options = {}) {
     const {
         title = 'Confirm Action',
@@ -106,59 +104,78 @@ function showConfirm(message, options = {}) {
     } = options;
 
     return new Promise((resolve) => {
-        confirmResolve = resolve;
+        // Scoped resolve function - prevents race condition
+        let localResolve = resolve;
+        let isResolved = false;
 
         const overlay = document.getElementById('confirmOverlay');
         const icon = document.getElementById('confirmIcon');
         const titleEl = document.getElementById('confirmTitle');
         const messageEl = document.getElementById('confirmMessage');
         const confirmBtn = document.getElementById('confirmButton');
+        const cancelBtn = document.getElementById('confirmCancelButton');
 
         // Set content
         titleEl.textContent = title;
         messageEl.textContent = message;
         confirmBtn.textContent = confirmText;
+        cancelBtn.textContent = cancelText;
 
         // Set icon and button color
         icon.className = `confirm-icon confirm-icon-${type}`;
         icon.textContent = type === 'danger' ? '🗑️' : '⚠️';
         confirmBtn.className = type === 'danger' ? 'btn btn-danger' : 'btn btn-primary';
 
-        // Show modal
-        overlay.classList.add('active');
+        // Handler to resolve and cleanup
+        const resolveAndCleanup = (result) => {
+            if (isResolved) return; // Prevent double resolution
+            isResolved = true;
 
-        // Close on backdrop click
-        overlay.onclick = (e) => {
+            overlay.classList.remove('active');
+
+            // Remove all event listeners
+            confirmBtn.removeEventListener('click', handleConfirm);
+            cancelBtn.removeEventListener('click', handleCancel);
+            overlay.removeEventListener('click', handleBackdrop);
+            document.removeEventListener('keydown', handleEscape);
+
+            // Resolve promise
+            localResolve(result);
+        };
+
+        // Event handlers
+        const handleConfirm = () => resolveAndCleanup(true);
+        const handleCancel = () => resolveAndCleanup(false);
+
+        const handleBackdrop = (e) => {
             if (e.target === overlay) {
-                closeConfirm(false);
+                resolveAndCleanup(false);
             }
         };
 
-        // Close on Escape key
         const handleEscape = (e) => {
             if (e.key === 'Escape') {
-                closeConfirm(false);
+                resolveAndCleanup(false);
             }
         };
-        currentEscapeHandler = handleEscape;
+
+        // Attach event listeners
+        confirmBtn.addEventListener('click', handleConfirm);
+        cancelBtn.addEventListener('click', handleCancel);
+        overlay.addEventListener('click', handleBackdrop);
         document.addEventListener('keydown', handleEscape);
+
+        // Show modal
+        overlay.classList.add('active');
     });
 }
 
+// Legacy closeConfirm for onclick handlers in HTML (if any)
 function closeConfirm(result) {
     const overlay = document.getElementById('confirmOverlay');
     overlay.classList.remove('active');
-
-    // Remove the escape handler if it exists
-    if (currentEscapeHandler) {
-        document.removeEventListener('keydown', currentEscapeHandler);
-        currentEscapeHandler = null;
-    }
-
-    if (confirmResolve) {
-        confirmResolve(result);
-        confirmResolve = null;
-    }
+    // Note: This legacy function doesn't resolve promises properly
+    // All new code should use the scoped handlers in showConfirm()
 }
 
 // ============================================================
@@ -286,6 +303,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else if (isAuthenticated) {
             loadListings();
         }
+    }
+
+    // Event delegation for listings table (replaces inline event handlers for better CSP)
+    const tbody = document.getElementById('listingsBody');
+    if (tbody) {
+        // Handle clicks (thumbnail carousel, edit button)
+        tbody.addEventListener('click', (event) => {
+            const target = event.target;
+            const row = target.closest('tr');
+            if (!row) return;
+
+            const offerId = row.dataset.offerId;
+
+            if (target.classList.contains('thumbnail')) {
+                openCarousel(offerId);
+            } else if (target.classList.contains('edit-item-btn')) {
+                editItem(offerId);
+            }
+        });
+
+        // Handle checkbox changes
+        tbody.addEventListener('change', (event) => {
+            const target = event.target;
+            const row = target.closest('tr');
+            if (!row) return;
+
+            const offerId = row.dataset.offerId;
+
+            if (target.classList.contains('listing-checkbox')) {
+                toggleSelect(offerId);
+            }
+        });
     }
 });
 
@@ -678,10 +727,10 @@ function displayCalculationResult(result) {
 function renderDesktopZoneResults(result, breakdownEl, warningBox) {
     let html = '';
 
-    // Add COO info at the top
+    // Add COO info at the top - XSS FIX: Escape countryOfOrigin
     if (result.zones.length > 0) {
         html += `<div style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; color: var(--text-muted);">
-            <strong>Country of Origin:</strong> ${result.zones[0].inputs.countryOfOrigin}
+            <strong>Country of Origin:</strong> ${escapeHtml(result.zones[0].inputs.countryOfOrigin)}
         </div>`;
     }
 
@@ -695,10 +744,10 @@ function renderDesktopZoneResults(result, breakdownEl, warningBox) {
         // Use consistent aqua/blue colour for all totals
         const totalColor = '#06b6d4'; // aqua/cyan
 
-        // Zone header with warning icon for tariff zones
+        // Zone header with warning icon for tariff zones - XSS FIX: Escape zoneName
         const zoneHeader = hasTariffs
-            ? `<strong>${zone.zoneName}</strong> ⚠️ <span style="color: var(--warning);">(Tariffs Apply)</span>`
-            : `<strong>${zone.zoneName}</strong>`;
+            ? `<strong>${escapeHtml(zone.zoneName)}</strong> ⚠️ <span style="color: var(--warning);">(Tariffs Apply)</span>`
+            : `<strong>${escapeHtml(zone.zoneName)}</strong>`;
 
         html += `
             <div style="border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; background: var(--card);">
@@ -736,10 +785,10 @@ function renderDesktopZoneResults(result, breakdownEl, warningBox) {
 function renderMobileZoneResults(result, breakdownEl, warningBox) {
     let html = '';
 
-    // Add COO info at the top
+    // Add COO info at the top - XSS FIX: Escape countryOfOrigin
     if (result.zones.length > 0) {
         html += `<div style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; color: var(--text-muted);">
-            <strong>COO:</strong> ${result.zones[0].inputs.countryOfOrigin}
+            <strong>COO:</strong> ${escapeHtml(result.zones[0].inputs.countryOfOrigin)}
         </div>`;
     }
 
@@ -753,7 +802,8 @@ function renderMobileZoneResults(result, breakdownEl, warningBox) {
 
         // Zone header text
         const warningIcon = hasTariffs ? ' ⚠️' : '';
-        const zoneName = zone.zoneName;
+        // XSS FIX: Escape zoneName before rendering
+        const zoneName = escapeHtml(zone.zoneName);
 
         html += `
             <div class="zone-card" data-zone-index="${index}">
@@ -931,7 +981,7 @@ function applyFiltersAndSort() {
         }
 
         switch (column) {
-            case 'offerId':
+            case 'offerId': {
                 // Use BigInt for large item IDs to avoid precision issues
                 aVal = BigInt(a.offerId || '0');
                 bVal = BigInt(b.offerId || '0');
@@ -939,6 +989,7 @@ function applyFiltersAndSort() {
                 if (aVal === bVal) return 0;
                 const result = aVal > bVal ? 1 : -1;
                 return direction === 'asc' ? result : -result;
+            }
             case 'title':
                 aVal = (a.title || '').toLowerCase();
                 bVal = (b.title || '').toLowerCase();
@@ -1169,11 +1220,11 @@ async function renderListings() {
             } else if (!title.toLowerCase().includes(brand.toLowerCase())) {
                 // Brand is set but NOT in title - mismatch
                 brandClass = 'brand-mismatch';
-                brandDisplay = `${brand}<br><strong>[NOT IN TITLE]</strong>`;
+                brandDisplay = `${escapeHtml(brand)}<br><strong>[NOT IN TITLE]</strong>`;
             } else {
                 // Brand is set AND in title - all good
                 brandClass = 'brand-match';
-                brandDisplay = brand;
+                brandDisplay = escapeHtml(brand);
             }
         } else if (enriched && (!enriched.brand || enriched.brand === '-' || enriched.brand.trim() === '')) {
             // Enrichment loaded but no brand found
@@ -1194,15 +1245,15 @@ async function renderListings() {
             // COO exists in listing
             if (coo.toLowerCase() === expectedCOO.toLowerCase()) {
                 cooClass = 'coo-match';
-                cooDisplay = coo;
+                cooDisplay = escapeHtml(coo);
             } else {
                 cooClass = 'coo-mismatch';
-                cooDisplay = `${coo}<br><strong>[MISMATCH: ${expectedCOO}]</strong>`;
+                cooDisplay = `${escapeHtml(coo)}<br><strong>[MISMATCH: ${escapeHtml(expectedCOO)}]</strong>`;
             }
         } else {
             // COO missing from listing - show expected COO with [MISSING] label
             cooClass = 'coo-missing';
-            cooDisplay = `${expectedCOO}<br><strong>[MISSING]</strong>`;
+            cooDisplay = `${escapeHtml(expectedCOO)}<br><strong>[MISSING]</strong>`;
         }
 
         // US Postage: show spinner if enrichment hasn't loaded yet
@@ -1245,22 +1296,22 @@ async function renderListings() {
         }
 
         return `
-            <tr data-offer-id="${offer.offerId}">
+            <tr data-offer-id="${escapeHtml(offer.offerId)}">
                 <td class="checkbox-cell">
-                    <input type="checkbox" onchange="toggleSelect('${offer.offerId}')"
+                    <input type="checkbox" class="listing-checkbox"
                            ${selectedItems.has(offer.offerId) ? 'checked' : ''}>
                 </td>
-                <td><img src="${imageUrl}" class="thumbnail" alt="${title}" onclick="openCarousel('${offer.offerId}')" onerror="this.src='https://via.placeholder.com/50'"></td>
-                <td class="title-cell"><a href="${listingUrl}" target="_blank" rel="noopener noreferrer" class="title-link">${title}</a></td>
+                <td><img src="${escapeHtml(imageUrl)}" class="thumbnail" alt="${escapeHtml(title)}" onerror="this.src='https://via.placeholder.com/50'"></td>
+                <td class="title-cell"><a href="${escapeHtml(listingUrl)}" target="_blank" rel="noopener noreferrer" class="title-link">${escapeHtml(title)}</a></td>
                 <td class="price">$${parseFloat(price).toFixed(2)}</td>
-                <td class="brand-cell ${brandClass}" data-item-id="${offer.offerId}">${brandDisplay}</td>
-                <td class="coo-cell ${cooClass}" data-item-id="${offer.offerId}">${cooDisplay}</td>
+                <td class="brand-cell ${brandClass}" data-item-id="${escapeHtml(offer.offerId)}">${brandDisplay}</td>
+                <td class="coo-cell ${cooClass}" data-item-id="${escapeHtml(offer.offerId)}">${cooDisplay}</td>
                 <td>Medium</td>
-                <td class="shipping-cell" data-item-id="${offer.offerId}">${currentUSPostage}</td>
-                <td class="calculated-cell" data-item-id="${offer.offerId}">${calculated}</td>
-                <td class="diff-cell ${diffClass}" data-item-id="${offer.offerId}">${diff}</td>
+                <td class="shipping-cell" data-item-id="${escapeHtml(offer.offerId)}">${currentUSPostage}</td>
+                <td class="calculated-cell" data-item-id="${escapeHtml(offer.offerId)}">${calculated}</td>
+                <td class="diff-cell ${diffClass}" data-item-id="${escapeHtml(offer.offerId)}">${diff}</td>
                 <td>
-                    <button class="btn btn-sm btn-secondary" onclick="editItem('${offer.offerId}')">Edit</button>
+                    <button class="btn btn-sm btn-secondary edit-item-btn">Edit</button>
                 </td>
             </tr>
         `;
@@ -1749,11 +1800,11 @@ function updateTableRow(enrichedData) {
         } else if (!title.toLowerCase().includes(brand.toLowerCase())) {
             // Brand is set but NOT in title - mismatch
             brandClass = 'brand-mismatch';
-            brandDisplay = `${brand}<br><strong>[NOT IN TITLE]</strong>`;
+            brandDisplay = `${escapeHtml(brand)}<br><strong>[NOT IN TITLE]</strong>`;
         } else {
             // Brand is set AND in title - all good
             brandClass = 'brand-match';
-            brandDisplay = brand;
+            brandDisplay = escapeHtml(brand);
         }
 
         brandCell.innerHTML = brandDisplay;
@@ -1775,15 +1826,15 @@ function updateTableRow(enrichedData) {
             // COO exists in listing
             if (coo.toLowerCase() === expectedCOO.toLowerCase()) {
                 cooClass = 'coo-match';
-                cooDisplay = coo;
+                cooDisplay = escapeHtml(coo);
             } else {
                 cooClass = 'coo-mismatch';
-                cooDisplay = `${coo}<br><strong>[MISMATCH: ${expectedCOO}]</strong>`;
+                cooDisplay = `${escapeHtml(coo)}<br><strong>[MISMATCH: ${escapeHtml(expectedCOO)}]</strong>`;
             }
         } else {
             // COO missing from listing - show expected COO with [MISSING] label
             cooClass = 'coo-missing';
-            cooDisplay = `${expectedCOO}<br><strong>[MISSING]</strong>`;
+            cooDisplay = `${escapeHtml(expectedCOO)}<br><strong>[MISSING]</strong>`;
         }
 
         cooCell.innerHTML = cooDisplay;
@@ -2066,10 +2117,23 @@ function openAddBrandModal() {
     document.getElementById('brandName').value = '';
     document.getElementById('brandNotes').value = '';
 
-    // Populate COO dropdown with current tariff countries
+    // Populate COO dropdown with current tariff countries - XSS FIX: Use programmatic DOM creation
     const select = document.getElementById('brandCOO');
-    select.innerHTML = '<option value="">Select Country</option>' +
-        window.dbTariffs.map(t => `<option value="${t.countryName}">${t.countryName}</option>`).join('');
+    select.innerHTML = ''; // Clear existing options
+
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select Country';
+    select.appendChild(defaultOption);
+
+    // Add tariff country options safely
+    window.dbTariffs.forEach(t => {
+        const option = document.createElement('option');
+        option.value = t.countryName;
+        option.textContent = t.countryName; // textContent is safe - auto-escapes
+        select.appendChild(option);
+    });
 
     const modal = document.getElementById('brandModal');
     modal.classList.add('active');
@@ -2086,10 +2150,26 @@ function editBrand(id) {
     document.getElementById('brandName').value = brand.brandName;
     document.getElementById('brandNotes').value = brand.notes || '';
 
-    // Populate COO dropdown
+    // Populate COO dropdown - XSS FIX: Use programmatic DOM creation
     const select = document.getElementById('brandCOO');
-    select.innerHTML = '<option value="">Select Country</option>' +
-        window.dbTariffs.map(t => `<option value="${t.countryName}" ${t.countryName === brand.primaryCoo ? 'selected' : ''}>${t.countryName}</option>`).join('');
+    select.innerHTML = ''; // Clear existing options
+
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select Country';
+    select.appendChild(defaultOption);
+
+    // Add tariff country options safely
+    window.dbTariffs.forEach(t => {
+        const option = document.createElement('option');
+        option.value = t.countryName;
+        option.textContent = t.countryName; // textContent is safe - auto-escapes
+        if (t.countryName === brand.primaryCoo) {
+            option.selected = true;
+        }
+        select.appendChild(option);
+    });
 
     const modal = document.getElementById('brandModal');
     modal.classList.add('active');
