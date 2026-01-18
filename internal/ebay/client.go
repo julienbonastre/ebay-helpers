@@ -1,3 +1,4 @@
+// Package ebay provides eBay API client functionality for Trading API, Browse API, and OAuth 2.0
 package ebay
 
 import (
