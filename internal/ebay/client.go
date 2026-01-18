@@ -18,17 +18,17 @@ import (
 const (
 	// Sandbox URLs
 	SandboxAuthURL         = "https://auth.sandbox.ebay.com/oauth2/authorize"
-	SandboxTokenURL        = "https://api.sandbox.ebay.com/identity/v1/oauth2/token"
-	SandboxAPIBaseURL      = "https://api.sandbox.ebay.com"            // For Sell APIs
-	SandboxCommerceBaseURL = "https://apiz.sandbox.ebay.com"           // For Commerce APIs
-	SandboxTradingAPIURL   = "https://api.sandbox.ebay.com/ws/api.dll" // For Trading API (XML)
+	SandboxTokenURL        = "https://api.sandbox.ebay.com/identity/v1/oauth2/token" // nosec G101 - This is a URL endpoint, not a credential
+	SandboxAPIBaseURL      = "https://api.sandbox.ebay.com"                          // For Sell APIs
+	SandboxCommerceBaseURL = "https://apiz.sandbox.ebay.com"                         // For Commerce APIs
+	SandboxTradingAPIURL   = "https://api.sandbox.ebay.com/ws/api.dll"               // For Trading API (XML)
 
 	// Production URLs
 	ProductionAuthURL         = "https://auth.ebay.com/oauth2/authorize"
-	ProductionTokenURL        = "https://api.ebay.com/identity/v1/oauth2/token"
-	ProductionAPIBaseURL      = "https://api.ebay.com"            // For Sell APIs
-	ProductionCommerceBaseURL = "https://apiz.ebay.com"           // For Commerce APIs (note the 'z')
-	ProductionTradingAPIURL   = "https://api.ebay.com/ws/api.dll" // For Trading API (XML)
+	ProductionTokenURL        = "https://api.ebay.com/identity/v1/oauth2/token" // nosec G101 - This is a URL endpoint, not a credential
+	ProductionAPIBaseURL      = "https://api.ebay.com"                          // For Sell APIs
+	ProductionCommerceBaseURL = "https://apiz.ebay.com"                         // For Commerce APIs (note the 'z')
+	ProductionTradingAPIURL   = "https://api.ebay.com/ws/api.dll"               // For Trading API (XML)
 )
 
 // Config holds eBay API configuration

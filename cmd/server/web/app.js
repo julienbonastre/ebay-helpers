@@ -304,6 +304,38 @@ document.addEventListener('DOMContentLoaded', async () => {
             loadListings();
         }
     }
+
+    // Event delegation for listings table (replaces inline event handlers for better CSP)
+    const tbody = document.getElementById('listingsBody');
+    if (tbody) {
+        // Handle clicks (thumbnail carousel, edit button)
+        tbody.addEventListener('click', (event) => {
+            const target = event.target;
+            const row = target.closest('tr');
+            if (!row) return;
+
+            const offerId = row.dataset.offerId;
+
+            if (target.classList.contains('thumbnail')) {
+                openCarousel(offerId);
+            } else if (target.classList.contains('edit-item-btn')) {
+                editItem(offerId);
+            }
+        });
+
+        // Handle checkbox changes
+        tbody.addEventListener('change', (event) => {
+            const target = event.target;
+            const row = target.closest('tr');
+            if (!row) return;
+
+            const offerId = row.dataset.offerId;
+
+            if (target.classList.contains('listing-checkbox')) {
+                toggleSelect(offerId);
+            }
+        });
+    }
 });
 
 // Hide tabs that aren't optimised for mobile
@@ -1266,10 +1298,10 @@ async function renderListings() {
         return `
             <tr data-offer-id="${escapeHtml(offer.offerId)}">
                 <td class="checkbox-cell">
-                    <input type="checkbox" onchange="toggleSelect('${escapeHtml(offer.offerId)}')"
+                    <input type="checkbox" class="listing-checkbox"
                            ${selectedItems.has(offer.offerId) ? 'checked' : ''}>
                 </td>
-                <td><img src="${escapeHtml(imageUrl)}" class="thumbnail" alt="${escapeHtml(title)}" onclick="openCarousel('${escapeHtml(offer.offerId)}')" onerror="this.src='https://via.placeholder.com/50'"></td>
+                <td><img src="${escapeHtml(imageUrl)}" class="thumbnail" alt="${escapeHtml(title)}" onerror="this.src='https://via.placeholder.com/50'"></td>
                 <td class="title-cell"><a href="${escapeHtml(listingUrl)}" target="_blank" rel="noopener noreferrer" class="title-link">${escapeHtml(title)}</a></td>
                 <td class="price">$${parseFloat(price).toFixed(2)}</td>
                 <td class="brand-cell ${brandClass}" data-item-id="${escapeHtml(offer.offerId)}">${brandDisplay}</td>
@@ -1279,7 +1311,7 @@ async function renderListings() {
                 <td class="calculated-cell" data-item-id="${escapeHtml(offer.offerId)}">${calculated}</td>
                 <td class="diff-cell ${diffClass}" data-item-id="${escapeHtml(offer.offerId)}">${diff}</td>
                 <td>
-                    <button class="btn btn-sm btn-secondary" onclick="editItem('${escapeHtml(offer.offerId)}')">Edit</button>
+                    <button class="btn btn-sm btn-secondary edit-item-btn">Edit</button>
                 </td>
             </tr>
         `;
