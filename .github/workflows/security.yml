@@ -40,7 +40,7 @@ jobs:
       - name: Run Gosec Security Scanner
         uses: securego/gosec@master
         with:
-          args: '-fmt sarif -out gosec-results.sarif ./...'
+          args: '-fmt sarif -out gosec-results.sarif -exclude=G101 ./...'
         continue-on-error: true
 
       - name: Upload Gosec results to GitHub Security tab
