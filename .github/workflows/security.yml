@@ -44,7 +44,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload Gosec results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: gosec-results.sarif
         if: always()
@@ -63,9 +63,19 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
-  # Dependency Review disabled - requires GitHub Advanced Security (GHAS)
-  # which is only available for public repos or Enterprise with GHAS license.
-  # For free private repos, use Dependabot alerts instead (enabled in repo settings).
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
 
   codeql:
     name: CodeQL Analysis
@@ -82,15 +92,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
