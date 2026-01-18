@@ -19,7 +19,7 @@ import (
 const (
 	// Sandbox URLs
 	SandboxAuthURL = "https://auth.sandbox.ebay.com/oauth2/authorize"
-	// nosec G101 -- This is a URL endpoint, not a credential
+	// nosec G101
 	SandboxTokenURL        = "https://api.sandbox.ebay.com/identity/v1/oauth2/token"
 	SandboxAPIBaseURL      = "https://api.sandbox.ebay.com"            // For Sell APIs
 	SandboxCommerceBaseURL = "https://apiz.sandbox.ebay.com"           // For Commerce APIs
@@ -27,7 +27,7 @@ const (
 
 	// Production URLs
 	ProductionAuthURL = "https://auth.ebay.com/oauth2/authorize"
-	// nosec G101 -- This is a URL endpoint, not a credential
+	// nosec G101
 	ProductionTokenURL        = "https://api.ebay.com/identity/v1/oauth2/token"
 	ProductionAPIBaseURL      = "https://api.ebay.com"            // For Sell APIs
 	ProductionCommerceBaseURL = "https://apiz.ebay.com"           // For Commerce APIs (note the 'z')
