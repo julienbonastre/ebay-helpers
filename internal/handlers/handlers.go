@@ -119,7 +119,10 @@ func (h *Handler) getEbayClient(r *http.Request) (*ebay.Client, error) {
 	}
 
 	// Get active environment from settings (production/sandbox)
-	activeEnvSetting, _ := h.db.GetSetting("active_ebay_environment")
+	activeEnvSetting, err := h.db.GetSetting("active_ebay_environment")
+	if err != nil {
+		log.Printf("ERROR: Failed to get active_ebay_environment setting: %v - falling back to production", err)
+	}
 	environment := "production" // default
 	if activeEnvSetting != nil {
 		environment = activeEnvSetting.Value
@@ -1837,6 +1840,23 @@ func (h *Handler) GetCredentials(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getCredential returns a single credential by ID (without decrypted secret)
+func (h *Handler) getCredential(w http.ResponseWriter, r *http.Request, id int64) {
+	credential, err := h.db.GetCredentialByID(id)
+	if err != nil {
+		log.Printf("GetCredential error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if credential == nil {
+		errorResponse(w, http.StatusNotFound, "Credential not found")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, credential)
+}
+
 // CreateCredential creates a new eBay credential with encrypted secret
 func (h *Handler) CreateCredential(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1904,6 +1924,8 @@ func (h *Handler) HandleCredentialByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.Method {
+	case http.MethodGet:
+		h.getCredential(w, r, id)
 	case http.MethodPut:
 		h.updateCredential(w, r, id)
 	case http.MethodDelete:
@@ -1999,14 +2021,17 @@ func (h *Handler) SetActiveCredential(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the environment of the activated credential
-	credentials, _ := h.db.GetAllCredentials()
-	var environment string
-	for _, cred := range credentials {
-		if cred.ID == req.ID {
-			environment = cred.Environment
-			break
-		}
+	cred, err := h.db.GetCredentialByID(req.ID)
+	if err != nil {
+		log.Printf("ERROR: SetActiveCredential: could not get credential to determine environment: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to retrieve activated credential")
+		return
 	}
+	if cred == nil {
+		errorResponse(w, http.StatusNotFound, "Credential not found")
+		return
+	}
+	environment := cred.Environment
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"status":      "activated",

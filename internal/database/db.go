@@ -579,6 +579,36 @@ func (db *DB) GetActiveCredential(environment string, encryptionKey []byte) (*Eb
 	return &cred, nil
 }
 
+// GetCredentialByID returns a single credential by ID without decrypted secret
+func (db *DB) GetCredentialByID(id int64) (*EbayCredential, error) {
+	var cred EbayCredential
+	err := db.QueryRow(`
+		SELECT id, name, environment, client_id, encrypted_client_secret, redirect_uri, is_active, created_at, updated_at
+		FROM ebay_credentials
+		WHERE id = ?
+	`, id).Scan(
+		&cred.ID,
+		&cred.Name,
+		&cred.Environment,
+		&cred.ClientID,
+		&cred.EncryptedClientSecret,
+		&cred.RedirectURI,
+		&cred.IsActive,
+		&cred.CreatedAt,
+		&cred.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // Credential not found
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Don't decrypt secret for display purposes
+	return &cred, nil
+}
+
 // CreateCredential creates a new credential with encrypted secret
 func (db *DB) CreateCredential(name, environment, clientID, clientSecret, redirectURI string, encryptionKey []byte) (int64, error) {
 	if encryptionKey == nil {
