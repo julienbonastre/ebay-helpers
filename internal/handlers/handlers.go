@@ -2098,7 +2098,9 @@ func (h *Handler) SwitchEnvironment(w http.ResponseWriter, r *http.Request) {
 	session, err := h.sessionStore.Get(r, sessionName)
 	if err == nil {
 		delete(session.Values, tokenKey)
-		session.Save(r, w)
+		if err := session.Save(r, w); err != nil {
+			log.Printf("WARNING: Failed to save session after clearing: %v", err)
+		}
 	}
 
 	// Clear caches

@@ -110,19 +110,17 @@ func main() {
 	// Initialize encryption key for credential storage
 	var encKey []byte
 	if encryptionKeyStr != "" {
-		var err error
-		encKey, err = database.GetEncryptionKey()
+		key, err := database.GetEncryptionKey()
 		if err != nil {
 			log.Printf("WARNING: %v", err)
 			log.Println("WARNING: Credential encryption disabled - using env vars only")
-			encKey = nil
 		} else {
 			log.Println("INFO: Credential encryption enabled - database-backed credentials available")
+			encKey = key
 		}
 	} else {
 		log.Println("INFO: EBAY_ENCRYPTION_KEY not set - credential storage disabled")
 		log.Println("INFO: Generate a key with: openssl rand -base64 32")
-		encKey = nil
 	}
 
 	// Create handlers with session store (no shared eBay client)

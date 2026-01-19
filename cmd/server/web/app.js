@@ -2366,16 +2366,11 @@ function openAddCredentialModal() {
 // Edit existing credential
 async function editCredential(id) {
     try {
-        const res = await secureFetch('/api/credentials');
+        const res = await secureFetch(`/api/credentials/${id}`);
         if (!res.ok) {
             throw new Error('Failed to load credential');
         }
-        const data = await res.json();
-        const cred = data.credentials.find(c => c.id === id);
-
-        if (!cred) {
-            throw new Error('Credential not found');
-        }
+        const cred = await res.json();
 
         document.getElementById('credentialModalTitle').textContent = 'Edit eBay Credential';
         document.getElementById('credentialId').value = cred.id;

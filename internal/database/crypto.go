@@ -33,24 +33,34 @@ func GetEncryptionKey() ([]byte, error) {
 	return key, nil
 }
 
-// EncryptSecret encrypts a plaintext string using AES-256-GCM
-// Returns the encrypted data as a byte slice (nonce + ciphertext)
-// The nonce is prepended to the ciphertext for storage
-func EncryptSecret(plaintext string, key []byte) ([]byte, error) {
+// newGCM creates an AES-GCM cipher from the provided key
+// Helper function to reduce code duplication between encryption and decryption
+func newGCM(key []byte) (cipher.AEAD, error) {
 	if len(key) != 32 {
 		return nil, fmt.Errorf("invalid key length: got %d bytes, expected 32", len(key))
 	}
 
-	// Create AES cipher
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cipher: %w", err)
 	}
 
-	// Create GCM (Galois/Counter Mode) cipher
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	return gcm, nil
+}
+
+// EncryptSecret encrypts a plaintext string using AES-256-GCM
+// Returns the encrypted data as a byte slice (nonce + ciphertext)
+// The nonce is prepended to the ciphertext for storage
+func EncryptSecret(plaintext string, key []byte) ([]byte, error) {
+	// Create GCM cipher
+	gcm, err := newGCM(key)
+	if err != nil {
+		return nil, err
 	}
 
 	// Generate random nonce (number used once)
@@ -73,20 +83,10 @@ func EncryptSecret(plaintext string, key []byte) ([]byte, error) {
 // DecryptSecret decrypts an encrypted byte slice back to plaintext
 // Expects the input to be in the format: [nonce][ciphertext+tag]
 func DecryptSecret(encrypted []byte, key []byte) (string, error) {
-	if len(key) != 32 {
-		return "", fmt.Errorf("invalid key length: got %d bytes, expected 32", len(key))
-	}
-
-	// Create AES cipher
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", fmt.Errorf("failed to create cipher: %w", err)
-	}
-
 	// Create GCM cipher
-	gcm, err := cipher.NewGCM(block)
+	gcm, err := newGCM(key)
 	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %w", err)
+		return "", err
 	}
 
 	// Extract nonce from beginning of encrypted data
