@@ -168,6 +168,24 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- eBay API credentials - supports multiple credential sets per environment
+-- Secrets are encrypted using AES-256-GCM with EBAY_ENCRYPTION_KEY
+CREATE TABLE IF NOT EXISTS ebay_credentials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,                         -- User-friendly name (e.g., "Production Main", "Sandbox Testing")
+    environment TEXT NOT NULL,                  -- "production" or "sandbox"
+    client_id TEXT NOT NULL,
+    encrypted_client_secret BLOB NOT NULL,      -- AES-256-GCM encrypted client secret
+    redirect_uri TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT FALSE,            -- Only one active credential per environment
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(environment, name)                   -- Prevent duplicate names per environment
+);
+
+-- Index for fast active credential lookup
+CREATE INDEX IF NOT EXISTS idx_ebay_credentials_active ON ebay_credentials(environment, is_active);
+
 -- Postal zones - defines shipping zones with handling fees and tariff settings
 CREATE TABLE IF NOT EXISTS postal_zones (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -216,4 +234,5 @@ INSERT OR IGNORE INTO settings (key, value, description, data_type) VALUES
     ('auspost_savings_tier', '0', 'Current AusPost Savings Tier (0-5)', 'int'),
     ('auspost_api_enabled', 'false', 'Enable AusPost API integration (future)', 'bool'),
     ('auspost_api_key', '', 'AusPost API key (future)', 'string'),
-    ('auspost_api_secret', '', 'AusPost API secret (future)', 'string');
+    ('auspost_api_secret', '', 'AusPost API secret (future)', 'string'),
+    ('active_ebay_environment', 'production', 'Current active eBay environment (production/sandbox)', 'string');

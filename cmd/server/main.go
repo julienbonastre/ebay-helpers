@@ -55,6 +55,9 @@ func main() {
 		log.Println("         Run: openssl rand -base64 32")
 	}
 
+	// Load encryption key for credential storage
+	encryptionKeyStr := os.Getenv("EBAY_ENCRYPTION_KEY")
+
 	// Determine environment
 	environment := "sandbox"
 	if !*sandbox {
@@ -104,8 +107,26 @@ func main() {
 		Sandbox:      *sandbox,
 	}
 
+	// Initialize encryption key for credential storage
+	var encKey []byte
+	if encryptionKeyStr != "" {
+		var err error
+		encKey, err = database.GetEncryptionKey()
+		if err != nil {
+			log.Printf("WARNING: %v", err)
+			log.Println("WARNING: Credential encryption disabled - using env vars only")
+			encKey = nil
+		} else {
+			log.Println("INFO: Credential encryption enabled - database-backed credentials available")
+		}
+	} else {
+		log.Println("INFO: EBAY_ENCRYPTION_KEY not set - credential storage disabled")
+		log.Println("INFO: Generate a key with: openssl rand -base64 32")
+		encKey = nil
+	}
+
 	// Create handlers with session store (no shared eBay client)
-	h := handlers.NewHandler(db, ebayConfig, sessionStore, verificationToken, publicEndpoint, environment, marketplaceID)
+	h := handlers.NewHandler(db, ebayConfig, sessionStore, verificationToken, publicEndpoint, environment, marketplaceID, encKey)
 
 	// Set up routes
 	mux := http.NewServeMux()
@@ -157,6 +178,14 @@ func main() {
 	mux.HandleFunc("/api/reference/tariffs", h.ReferenceTariffs)     // GET/POST /api/reference/tariffs
 	mux.HandleFunc("/api/reference/brands/", h.ReferenceBrandByID)   // PUT/DELETE /api/reference/brands/:id
 	mux.HandleFunc("/api/reference/brands", h.ReferenceBrands)       // GET/POST /api/reference/brands
+
+	// eBay Credentials Management
+	mux.HandleFunc("/api/credentials", h.GetCredentials)             // GET /api/credentials
+	mux.HandleFunc("/api/credentials/create", h.CreateCredential)    // POST /api/credentials/create
+	mux.HandleFunc("/api/credentials/", h.HandleCredentialByID)      // PUT/DELETE /api/credentials/:id
+	mux.HandleFunc("/api/credentials/activate", h.SetActiveCredential) // POST /api/credentials/activate
+	mux.HandleFunc("/api/environment", h.GetCurrentEnvironment)      // GET /api/environment
+	mux.HandleFunc("/api/environment/switch", h.SwitchEnvironment)   // POST /api/environment/switch
 
 	// Serve embedded static files
 	webContent, err := fs.Sub(webFS, "web")

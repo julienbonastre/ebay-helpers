@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	_ "embed"
+	"errors"
 	"fmt"
 	"time"
 
@@ -377,6 +378,202 @@ func (db *DB) UpdateSetting(key, value string) error {
 		SET value = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE key = ?
 	`, value, key)
+	return err
+}
+
+// EbayCredential represents an eBay API credential set with encryption support
+type EbayCredential struct {
+	ID                    int64     `json:"id"`
+	Name                  string    `json:"name"`
+	Environment           string    `json:"environment"`   // "production" or "sandbox"
+	ClientID              string    `json:"clientId"`
+	EncryptedClientSecret []byte    `json:"-"`             // Never sent to frontend
+	ClientSecret          string    `json:"-"`             // Decrypted, never persisted
+	RedirectURI           string    `json:"redirectUri"`
+	IsActive              bool      `json:"isActive"`
+	CreatedAt             time.Time `json:"createdAt"`
+	UpdatedAt             time.Time `json:"updatedAt"`
+}
+
+// GetAllCredentials returns all credentials without decrypted secrets
+func (db *DB) GetAllCredentials() ([]EbayCredential, error) {
+	rows, err := db.Query(`
+		SELECT id, name, environment, client_id, encrypted_client_secret, redirect_uri, is_active, created_at, updated_at
+		FROM ebay_credentials
+		ORDER BY environment, name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var credentials []EbayCredential
+	for rows.Next() {
+		var cred EbayCredential
+		err := rows.Scan(
+			&cred.ID,
+			&cred.Name,
+			&cred.Environment,
+			&cred.ClientID,
+			&cred.EncryptedClientSecret,
+			&cred.RedirectURI,
+			&cred.IsActive,
+			&cred.CreatedAt,
+			&cred.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		// Don't decrypt secrets for list view (security)
+		credentials = append(credentials, cred)
+	}
+	return credentials, rows.Err()
+}
+
+// GetActiveCredential returns the active credential for a given environment with decrypted secret
+func (db *DB) GetActiveCredential(environment string, encryptionKey []byte) (*EbayCredential, error) {
+	if encryptionKey == nil {
+		return nil, errors.New("encryption key required for credential decryption")
+	}
+
+	var cred EbayCredential
+	err := db.QueryRow(`
+		SELECT id, name, environment, client_id, encrypted_client_secret, redirect_uri, is_active, created_at, updated_at
+		FROM ebay_credentials
+		WHERE environment = ? AND is_active = TRUE
+		LIMIT 1
+	`, environment).Scan(
+		&cred.ID,
+		&cred.Name,
+		&cred.Environment,
+		&cred.ClientID,
+		&cred.EncryptedClientSecret,
+		&cred.RedirectURI,
+		&cred.IsActive,
+		&cred.CreatedAt,
+		&cred.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // No active credential found
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt the client secret
+	decrypted, err := DecryptSecret(cred.EncryptedClientSecret, encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt client secret: %w", err)
+	}
+	cred.ClientSecret = decrypted
+
+	return &cred, nil
+}
+
+// CreateCredential creates a new credential with encrypted secret
+func (db *DB) CreateCredential(name, environment, clientID, clientSecret, redirectURI string, encryptionKey []byte) (int64, error) {
+	if encryptionKey == nil {
+		return 0, errors.New("encryption key required for credential encryption")
+	}
+
+	// Encrypt the client secret
+	encrypted, err := EncryptSecret(clientSecret, encryptionKey)
+	if err != nil {
+		return 0, fmt.Errorf("failed to encrypt client secret: %w", err)
+	}
+
+	result, err := db.Exec(`
+		INSERT INTO ebay_credentials (name, environment, client_id, encrypted_client_secret, redirect_uri, is_active)
+		VALUES (?, ?, ?, ?, ?, FALSE)
+	`, name, environment, clientID, encrypted, redirectURI)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return result.LastInsertId()
+}
+
+// UpdateCredential updates an existing credential
+// If clientSecret is empty string, the existing secret is not updated
+func (db *DB) UpdateCredential(id int64, name, clientSecret, redirectURI string, encryptionKey []byte) error {
+	// If client secret provided, encrypt and update it
+	if clientSecret != "" {
+		if encryptionKey == nil {
+			return errors.New("encryption key required for credential encryption")
+		}
+
+		encrypted, err := EncryptSecret(clientSecret, encryptionKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt client secret: %w", err)
+		}
+
+		_, err = db.Exec(`
+			UPDATE ebay_credentials
+			SET name = ?, encrypted_client_secret = ?, redirect_uri = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, name, encrypted, redirectURI, id)
+		return err
+	}
+
+	// Update without changing secret
+	_, err := db.Exec(`
+		UPDATE ebay_credentials
+		SET name = ?, redirect_uri = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, name, redirectURI, id)
+	return err
+}
+
+// SetActiveCredential sets a credential as active and deactivates others in the same environment
+func (db *DB) SetActiveCredential(id int64) error {
+	// Start transaction to ensure atomicity
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Get the environment of the credential being activated
+	var environment string
+	err = tx.QueryRow("SELECT environment FROM ebay_credentials WHERE id = ?", id).Scan(&environment)
+	if err != nil {
+		return err
+	}
+
+	// Deactivate all credentials in the same environment
+	_, err = tx.Exec("UPDATE ebay_credentials SET is_active = FALSE WHERE environment = ?", environment)
+	if err != nil {
+		return err
+	}
+
+	// Activate the selected credential
+	_, err = tx.Exec("UPDATE ebay_credentials SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// DeleteCredential deletes a credential (fails if active)
+func (db *DB) DeleteCredential(id int64) error {
+	// Check if credential is active
+	var isActive bool
+	err := db.QueryRow("SELECT is_active FROM ebay_credentials WHERE id = ?", id).Scan(&isActive)
+	if err == sql.ErrNoRows {
+		return errors.New("credential not found")
+	}
+	if err != nil {
+		return err
+	}
+
+	if isActive {
+		return errors.New("cannot delete active credential - set another credential as active first")
+	}
+
+	_, err = db.Exec("DELETE FROM ebay_credentials WHERE id = ?", id)
 	return err
 }
 
