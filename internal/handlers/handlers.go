@@ -28,13 +28,13 @@ type EnrichedItemData struct {
 	ItemID           string    `json:"itemId"`
 	Brand            string    `json:"brand"`
 	CountryOfOrigin  string    `json:"countryOfOrigin"`
-	ExpectedCOO      string    `json:"expectedCoo"`      // From brand mapping
-	COOStatus        string    `json:"cooStatus"`        // "match", "mismatch", "missing"
+	ExpectedCOO      string    `json:"expectedCoo"` // From brand mapping
+	COOStatus        string    `json:"cooStatus"`   // "match", "mismatch", "missing"
 	ShippingCost     string    `json:"shippingCost"`
 	ShippingCurrency string    `json:"shippingCurrency"`
-	CalculatedCost   float64   `json:"calculatedCost"`   // Server-calculated postage
-	Diff             float64   `json:"diff"`             // ShippingCost - CalculatedCost
-	DiffStatus       string    `json:"diffStatus"`       // "ok" (green) or "bad" (red)
+	CalculatedCost   float64   `json:"calculatedCost"` // Server-calculated postage
+	Diff             float64   `json:"diff"`           // ShippingCost - CalculatedCost
+	DiffStatus       string    `json:"diffStatus"`     // "ok" (green) or "bad" (red)
 	Images           []string  `json:"images"`
 	EnrichedAt       time.Time `json:"enrichedAt"`
 }
@@ -42,31 +42,32 @@ type EnrichedItemData struct {
 // Handler holds dependencies for HTTP handlers
 type Handler struct {
 	db                *database.DB
-	ebayConfig        ebay.Config                // eBay configuration (no shared client)
-	sessionStore      *database.DBSessionStore   // Session store for per-user tokens
-	currentAccount    *database.Account          // Current instance's account (can be nil until OAuth)
+	ebayConfig        ebay.Config              // eBay configuration (no shared client)
+	sessionStore      *database.DBSessionStore // Session store for per-user tokens
+	currentAccount    *database.Account        // Current instance's account (can be nil until OAuth)
 	syncService       *syncpkg.Service
 	calcConfig        *calculator.CalculatorConfig // Calculator configuration loaded from database
 	mu                sync.RWMutex
 	oauthState        string
-	verificationToken string                     // eBay verification token for account deletion notifications
-	endpoint          string                     // Public endpoint URL for this server
-	environment       string                     // "production" or "sandbox"
-	marketplaceID     string                     // Default marketplace ID
+	verificationToken string // eBay verification token for account deletion notifications
+	endpoint          string // Public endpoint URL for this server
+	environment       string // "production" or "sandbox"
+	marketplaceID     string // Default marketplace ID
+	encryptionKey     []byte // AES-256 key for credential encryption
 
 	// Item enrichment cache and background worker
-	enrichmentCache   map[string]*EnrichedItemData // ItemID -> EnrichedItemData
-	enrichmentMutex   sync.RWMutex                 // Protects enrichmentCache
-	enrichmentQueue   chan string                  // Queue of ItemIDs to enrich
+	enrichmentCache map[string]*EnrichedItemData // ItemID -> EnrichedItemData
+	enrichmentMutex sync.RWMutex                 // Protects enrichmentCache
+	enrichmentQueue chan string                  // Queue of ItemIDs to enrich
 
 	// Listings cache - avoids re-fetching from eBay on every page load
-	listingsCache     []map[string]interface{}     // Cached offer listings
-	listingsCacheTime time.Time                    // When cache was last updated
-	listingsMutex     sync.RWMutex                 // Protects listingsCache
+	listingsCache     []map[string]interface{} // Cached offer listings
+	listingsCacheTime time.Time                // When cache was last updated
+	listingsMutex     sync.RWMutex             // Protects listingsCache
 }
 
 // NewHandler creates a new handler
-func NewHandler(db *database.DB, config ebay.Config, sessionStore *database.DBSessionStore, verificationToken, endpoint, environment, marketplaceID string) *Handler {
+func NewHandler(db *database.DB, config ebay.Config, sessionStore *database.DBSessionStore, verificationToken, endpoint, environment, marketplaceID string, encryptionKey []byte) *Handler {
 	// Load calculator configuration from database
 	// CRITICAL: Database is the single source of truth - fail fast if config cannot be loaded
 	calcConfig, err := db.GetCalculatorConfig()
@@ -87,6 +88,7 @@ func NewHandler(db *database.DB, config ebay.Config, sessionStore *database.DBSe
 		endpoint:          endpoint,
 		environment:       environment,
 		marketplaceID:     marketplaceID,
+		encryptionKey:     encryptionKey,
 		enrichmentCache:   make(map[string]*EnrichedItemData),
 		enrichmentQueue:   make(chan string, 1000), // Buffer up to 1000 items
 	}
@@ -109,14 +111,52 @@ const (
 )
 
 // getEbayClient creates a client for this request using session token
+// Hybrid approach: loads credentials from database if available, falls back to env vars
 func (h *Handler) getEbayClient(r *http.Request) (*ebay.Client, error) {
 	session, err := h.sessionStore.Get(r, sessionName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
 
+	// Get active environment from settings (production/sandbox)
+	activeEnvSetting, err := h.db.GetSetting("active_ebay_environment")
+	if err != nil {
+		log.Printf("ERROR: Failed to get active_ebay_environment setting: %v - falling back to production", err)
+	}
+	environment := "production" // default
+	if activeEnvSetting != nil {
+		environment = activeEnvSetting.Value
+	}
 
-	client := ebay.NewClient(h.ebayConfig)
+	// Try to load active credential from database
+	var config ebay.Config
+	if h.encryptionKey != nil {
+		cred, err := h.db.GetActiveCredential(environment, h.encryptionKey)
+		if err == nil && cred != nil {
+			// Use database credentials
+			config = ebay.Config{
+				ClientID:     cred.ClientID,
+				ClientSecret: cred.ClientSecret,
+				RedirectURI:  cred.RedirectURI,
+				Sandbox:      environment == "sandbox",
+				Scopes:       h.ebayConfig.Scopes, // Use same scopes
+			}
+			log.Printf("Using DB credentials: %s (%s)", cred.Name, environment)
+		} else {
+			// Fallback to env vars
+			config = h.ebayConfig
+			if err != nil {
+				log.Printf("Failed to load DB credentials: %v - using env vars", err)
+			} else {
+				log.Printf("No active %s credential in DB - using env vars", environment)
+			}
+		}
+	} else {
+		// No encryption key - use env vars only
+		config = h.ebayConfig
+	}
+
+	client := ebay.NewClient(config)
 
 	// Load token from session if it exists
 	// Note: token may be []byte (in-memory) or string (from database JSON)
@@ -267,7 +307,6 @@ func (h *Handler) GetCurrentAccount(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	account := h.currentAccount
 	h.mu.RUnlock()
-
 
 	// If no account in memory but user has valid session, hydrate from eBay
 	if account == nil {
@@ -1010,7 +1049,7 @@ func (h *Handler) ReferenceTariffs(w http.ResponseWriter, r *http.Request) {
 // ReferenceTariffByID handles CRUD operations for a specific tariff rate
 func (h *Handler) ReferenceTariffByID(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path: /api/reference/tariffs/:id
-	idStr := r.URL.Path[len("/api/reference/tariffs/"):]
+	idStr := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/reference/tariffs/"), "/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		errorResponse(w, http.StatusBadRequest, "Invalid tariff ID")
@@ -1127,7 +1166,7 @@ func (h *Handler) ReferenceBrands(w http.ResponseWriter, r *http.Request) {
 // ReferenceBrandByID handles CRUD operations for a specific brand mapping
 func (h *Handler) ReferenceBrandByID(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path: /api/reference/brands/:id
-	idStr := r.URL.Path[len("/api/reference/brands/"):]
+	idStr := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/reference/brands/"), "/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		errorResponse(w, http.StatusBadRequest, "Invalid brand ID")
@@ -1738,9 +1777,9 @@ func (h *Handler) UpdateSetting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{
-		"status":  "updated",
-		"key":     key,
-		"value":   req.Value,
+		"status": "updated",
+		"key":    key,
+		"value":  req.Value,
 	})
 }
 
@@ -1778,4 +1817,312 @@ func (h *Handler) GetListings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, result)
+}
+
+// GetCredentials returns all eBay credentials (without decrypted secrets)
+func (h *Handler) GetCredentials(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	credentials, err := h.db.GetAllCredentials()
+	if err != nil {
+		log.Printf("GetCredentials error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"credentials": credentials,
+		"total":       len(credentials),
+	})
+}
+
+// getCredential returns a single credential by ID (without decrypted secret)
+func (h *Handler) getCredential(w http.ResponseWriter, r *http.Request, id int64) {
+	credential, err := h.db.GetCredentialByID(id)
+	if err != nil {
+		log.Printf("GetCredential error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if credential == nil {
+		errorResponse(w, http.StatusNotFound, "Credential not found")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, credential)
+}
+
+// CreateCredential creates a new eBay credential with encrypted secret
+func (h *Handler) CreateCredential(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	if h.encryptionKey == nil {
+		errorResponse(w, http.StatusServiceUnavailable, "Credential encryption not available - EBAY_ENCRYPTION_KEY not set")
+		return
+	}
+
+	var req struct {
+		Name         string `json:"name"`
+		Environment  string `json:"environment"`
+		ClientID     string `json:"clientId"`
+		ClientSecret string `json:"clientSecret"`
+		RedirectURI  string `json:"redirectUri"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate required fields
+	if req.Name == "" || req.Environment == "" || req.ClientID == "" || req.ClientSecret == "" || req.RedirectURI == "" {
+		errorResponse(w, http.StatusBadRequest, "Missing required fields")
+		return
+	}
+
+	// Validate environment
+	if req.Environment != "production" && req.Environment != "sandbox" {
+		errorResponse(w, http.StatusBadRequest, "Environment must be 'production' or 'sandbox'")
+		return
+	}
+
+	id, err := h.db.CreateCredential(req.Name, req.Environment, req.ClientID, req.ClientSecret, req.RedirectURI, h.encryptionKey)
+	if err != nil {
+		log.Printf("CreateCredential error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"status": "created",
+		"id":     id,
+	})
+}
+
+// HandleCredentialByID handles PUT and DELETE requests for individual credentials
+func (h *Handler) HandleCredentialByID(w http.ResponseWriter, r *http.Request) {
+	// Extract ID from URL path: /api/credentials/:id
+	// Use TrimPrefix/TrimSuffix to handle trailing slashes robustly
+	path := r.URL.Path
+	idStr := strings.TrimSuffix(strings.TrimPrefix(path, "/api/credentials/"), "/")
+	if idStr == "" {
+		errorResponse(w, http.StatusBadRequest, "Missing credential ID")
+		return
+	}
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid credential ID")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		h.getCredential(w, r, id)
+	case http.MethodPut:
+		h.updateCredential(w, r, id)
+	case http.MethodDelete:
+		h.deleteCredential(w, r, id)
+	default:
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+// updateCredential updates an existing credential
+func (h *Handler) updateCredential(w http.ResponseWriter, r *http.Request, id int64) {
+	if h.encryptionKey == nil {
+		errorResponse(w, http.StatusServiceUnavailable, "Credential encryption not available - EBAY_ENCRYPTION_KEY not set")
+		return
+	}
+
+	var req struct {
+		Name         string `json:"name"`
+		ClientSecret string `json:"clientSecret"` // Optional - empty means don't update
+		RedirectURI  string `json:"redirectUri"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate required fields (clientSecret is optional)
+	if req.Name == "" || req.RedirectURI == "" {
+		errorResponse(w, http.StatusBadRequest, "Missing required fields")
+		return
+	}
+
+	err := h.db.UpdateCredential(id, req.Name, req.ClientSecret, req.RedirectURI, h.encryptionKey)
+	if err != nil {
+		log.Printf("UpdateCredential error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"status": "updated",
+		"id":     id,
+	})
+}
+
+// deleteCredential deletes a credential (fails if active)
+func (h *Handler) deleteCredential(w http.ResponseWriter, r *http.Request, id int64) {
+	err := h.db.DeleteCredential(id)
+	if err != nil {
+		log.Printf("DeleteCredential error: %v", err)
+		// Return 400 for business logic errors (e.g., trying to delete active credential)
+		if err.Error() == "cannot delete active credential - set another credential as active first" {
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		} else {
+			errorResponse(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"status": "deleted",
+		"id":     id,
+	})
+}
+
+// SetActiveCredential sets a credential as active
+func (h *Handler) SetActiveCredential(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req struct {
+		ID int64 `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.ID == 0 {
+		errorResponse(w, http.StatusBadRequest, "Missing credential ID")
+		return
+	}
+
+	err := h.db.SetActiveCredential(req.ID)
+	if err != nil {
+		log.Printf("SetActiveCredential error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Get the environment of the activated credential
+	cred, err := h.db.GetCredentialByID(req.ID)
+	if err != nil {
+		log.Printf("ERROR: SetActiveCredential: could not get credential to determine environment: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "Failed to retrieve activated credential")
+		return
+	}
+	if cred == nil {
+		errorResponse(w, http.StatusNotFound, "Credential not found")
+		return
+	}
+	environment := cred.Environment
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"status":      "activated",
+		"id":          req.ID,
+		"environment": environment,
+	})
+}
+
+// GetCurrentEnvironment returns the current active environment
+func (h *Handler) GetCurrentEnvironment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	activeEnv, err := h.db.GetSetting("active_ebay_environment")
+	if err != nil {
+		log.Printf("GetCurrentEnvironment error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	environment := "production" // default
+	if activeEnv != nil {
+		environment = activeEnv.Value
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"environment": environment,
+	})
+}
+
+// SwitchEnvironment switches the active eBay environment
+func (h *Handler) SwitchEnvironment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req struct {
+		Environment string `json:"environment"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate environment
+	if req.Environment != "production" && req.Environment != "sandbox" {
+		errorResponse(w, http.StatusBadRequest, "Environment must be 'production' or 'sandbox'")
+		return
+	}
+
+	// Update environment setting
+	err := h.db.UpdateSetting("active_ebay_environment", req.Environment)
+	if err != nil {
+		log.Printf("SwitchEnvironment error: %v", err)
+		errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Clear session (force re-authentication with new environment)
+	session, err := h.sessionStore.Get(r, sessionName)
+	if err == nil {
+		delete(session.Values, tokenKey)
+		if err := session.Save(r, w); err != nil {
+			log.Printf("WARNING: Failed to save session after clearing: %v", err)
+		}
+	}
+
+	// Clear caches
+	h.listingsMutex.Lock()
+	h.listingsCache = nil
+	h.listingsCacheTime = time.Time{}
+	h.listingsMutex.Unlock()
+
+	h.enrichmentMutex.Lock()
+	h.enrichmentCache = make(map[string]*EnrichedItemData)
+	h.enrichmentMutex.Unlock()
+
+	// Log with safe value - req.Environment already validated to be "production" or "sandbox"
+	// CodeQL: This is safe because validation at line 2084 ensures only whitelisted values
+	safeEnv := "production" // default
+	if req.Environment == "sandbox" {
+		safeEnv = "sandbox"
+	}
+	log.Printf("Environment switched to %s - session and caches cleared", safeEnv)
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"status":      "switched",
+		"environment": req.Environment,
+	})
 }

@@ -284,6 +284,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await checkAuthStatus();        // Check authentication status first
     await loadCurrentAccount();
     await loadReferenceData();
+    await loadCurrentEnvironment();  // Load and set current environment
 
     // Check for auth success redirect
     const params = new URLSearchParams(window.location.search);
@@ -1980,6 +1981,9 @@ async function loadSettingsTab() {
                 }
             });
         }
+
+        // Load credentials management UI
+        await loadCredentials();
     } catch (err) {
         console.error('Failed to load settings:', err);
     }
@@ -2251,5 +2255,328 @@ async function deleteBrand(id) {
         showSuccess('Brand deleted successfully');
     } catch (err) {
         showError(`Error: ${err.message}`);
+    }
+}
+
+// ========================================
+// Credential Management Functions
+// ========================================
+
+// Load and display all credentials
+async function loadCredentials() {
+    try {
+        const res = await secureFetch('/api/credentials');
+        if (!res.ok) {
+            throw new Error('Failed to load credentials');
+        }
+        const data = await res.json();
+        renderCredentialsTable(data.credentials || []);
+    } catch (err) {
+        showError(`Error loading credentials: ${err.message}`);
+        document.getElementById('credentialsTable').innerHTML = '<p style="color: var(--danger);">Failed to load credentials</p>';
+    }
+}
+
+// Render credentials table grouped by environment
+function renderCredentialsTable(credentials) {
+    const container = document.getElementById('credentialsTable');
+
+    if (credentials.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-muted); font-style: italic; margin-top: 1rem;">No credentials configured. Click "Add New Credential" to get started.</p>';
+        return;
+    }
+
+    // Group by environment
+    const production = credentials.filter(c => c.environment === 'production');
+    const sandbox = credentials.filter(c => c.environment === 'sandbox');
+
+    let html = '<div style="margin-top: 1.5rem;">';
+
+    // Production section
+    if (production.length > 0) {
+        html += '<h3 style="margin-bottom: 0.5rem;">Production</h3>';
+        html += '<table class="table" style="margin-bottom: 2rem;"><thead><tr>';
+        html += '<th>Name</th><th>Client ID</th><th>Redirect URI</th><th>Status</th><th>Actions</th>';
+        html += '</tr></thead><tbody>';
+        production.forEach(cred => {
+            html += renderCredentialRow(cred);
+        });
+        html += '</tbody></table>';
+    }
+
+    // Sandbox section
+    if (sandbox.length > 0) {
+        html += '<h3 style="margin-bottom: 0.5rem;">Sandbox</h3>';
+        html += '<table class="table"><thead><tr>';
+        html += '<th>Name</th><th>Client ID</th><th>Redirect URI</th><th>Status</th><th>Actions</th>';
+        html += '</tr></thead><tbody>';
+        sandbox.forEach(cred => {
+            html += renderCredentialRow(cred);
+        });
+        html += '</tbody></table>';
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+// Render a single credential row
+function renderCredentialRow(cred) {
+    const statusBadge = cred.is_active
+        ? '<span style="color: var(--success); font-weight: bold;">✓ Active</span>'
+        : '<span style="color: var(--text-muted);">Inactive</span>';
+
+    const activateBtn = cred.is_active
+        ? ''
+        : `<button class="btn btn-sm" onclick="setActiveCredential(${cred.id})" style="margin-right: 0.25rem;">Set Active</button>`;
+
+    const deleteBtn = cred.is_active
+        ? `<button class="btn btn-sm" disabled title="Cannot delete active credential" style="opacity: 0.5; cursor: not-allowed;">Delete</button>`
+        : `<button class="btn btn-sm btn-danger" onclick="deleteCredential(${cred.id}, '${escapeHtml(cred.name)}')">Delete</button>`;
+
+    return `
+        <tr>
+            <td>${escapeHtml(cred.name)}</td>
+            <td><code style="font-size: 0.85em;">${escapeHtml(cred.client_id)}</code></td>
+            <td style="font-size: 0.85em;">${escapeHtml(cred.redirect_uri)}</td>
+            <td>${statusBadge}</td>
+            <td>
+                <button class="btn btn-sm" onclick="editCredential(${cred.id})" style="margin-right: 0.25rem;">Edit</button>
+                ${activateBtn}
+                ${deleteBtn}
+            </td>
+        </tr>
+    `;
+}
+
+// Open modal for adding new credential
+function openAddCredentialModal() {
+    document.getElementById('credentialModalTitle').textContent = 'Add eBay Credential';
+    document.getElementById('credentialId').value = '';
+    document.getElementById('credentialName').value = '';
+    document.getElementById('credentialEnvironment').value = 'production';
+    document.getElementById('credentialClientId').value = '';
+    document.getElementById('credentialClientSecret').value = '';
+    document.getElementById('credentialClientSecret').placeholder = '';
+    document.getElementById('credentialClientSecret').required = true;
+    document.getElementById('credentialRedirectUri').value = 'http://localhost:8080/api/oauth/callback';
+    document.getElementById('credentialModal').style.display = 'block';
+}
+
+// Edit existing credential
+async function editCredential(id) {
+    try {
+        const res = await secureFetch(`/api/credentials/${id}`);
+        if (!res.ok) {
+            throw new Error('Failed to load credential');
+        }
+        const cred = await res.json();
+
+        document.getElementById('credentialModalTitle').textContent = 'Edit eBay Credential';
+        document.getElementById('credentialId').value = cred.id;
+        document.getElementById('credentialName').value = cred.name;
+        document.getElementById('credentialEnvironment').value = cred.environment;
+        document.getElementById('credentialEnvironment').disabled = true; // Cannot change environment
+        document.getElementById('credentialClientId').value = cred.client_id;
+        document.getElementById('credentialClientSecret').value = '';
+        document.getElementById('credentialClientSecret').placeholder = 'Leave blank to keep existing';
+        document.getElementById('credentialClientSecret').required = false;
+        document.getElementById('credentialRedirectUri').value = cred.redirect_uri;
+        document.getElementById('credentialModal').style.display = 'block';
+    } catch (err) {
+        showError(`Error loading credential: ${err.message}`);
+    }
+}
+
+// Save credential (create or update)
+async function saveCredential(event) {
+    event.preventDefault();
+
+    const id = document.getElementById('credentialId').value;
+    const name = document.getElementById('credentialName').value.trim();
+    const environment = document.getElementById('credentialEnvironment').value;
+    const clientId = document.getElementById('credentialClientId').value.trim();
+    const clientSecret = document.getElementById('credentialClientSecret').value.trim();
+    const redirectUri = document.getElementById('credentialRedirectUri').value.trim();
+
+    // Validation
+    if (!name || !clientId || !redirectUri) {
+        showError('Please fill in all required fields');
+        return;
+    }
+
+    if (!id && !clientSecret) {
+        showError('Client Secret is required for new credentials');
+        return;
+    }
+
+    try {
+        let res;
+        if (id) {
+            // Update existing
+            res = await secureFetch(`/api/credentials/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name,
+                    client_secret: clientSecret, // Empty string = keep existing
+                    redirect_uri: redirectUri
+                })
+            });
+        } else {
+            // Create new
+            res = await secureFetch('/api/credentials/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name,
+                    environment,
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    redirect_uri: redirectUri
+                })
+            });
+        }
+
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+
+        closeCredentialModal();
+        await loadCredentials();
+        showSuccess(id ? 'Credential updated successfully' : 'Credential created successfully');
+    } catch (err) {
+        showError(`Error saving credential: ${err.message}`);
+    }
+}
+
+// Delete credential with confirmation
+async function deleteCredential(id, name) {
+    if (!confirm(`Are you sure you want to delete the credential "${name}"?\n\nThis action cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const res = await secureFetch(`/api/credentials/${id}`, {
+            method: 'DELETE'
+        });
+
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+
+        await loadCredentials();
+        showSuccess('Credential deleted successfully');
+    } catch (err) {
+        showError(`Error deleting credential: ${err.message}`);
+    }
+}
+
+// Set credential as active
+async function setActiveCredential(id) {
+    try {
+        const res = await secureFetch('/api/credentials/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+
+        await loadCredentials();
+        showSuccess('Credential activated successfully');
+    } catch (err) {
+        showError(`Error activating credential: ${err.message}`);
+    }
+}
+
+// Close credential modal
+function closeCredentialModal() {
+    document.getElementById('credentialModal').style.display = 'none';
+    document.getElementById('credentialEnvironment').disabled = false; // Re-enable for next use
+}
+
+// Load current environment and update UI
+async function loadCurrentEnvironment() {
+    try {
+        const res = await secureFetch('/api/environment');
+        if (!res.ok) {
+            throw new Error('Failed to load environment');
+        }
+        const data = await res.json();
+        const envSwitcher = document.getElementById('envSwitcher');
+        if (envSwitcher) {
+            envSwitcher.value = data.environment || 'production';
+        }
+        updatePageTitle(data.environment || 'production');
+    } catch (err) {
+        console.error('Error loading environment:', err);
+        // Fallback to production
+        const envSwitcher = document.getElementById('envSwitcher');
+        if (envSwitcher) {
+            envSwitcher.value = 'production';
+        }
+        updatePageTitle('production');
+    }
+}
+
+// Handle environment switch with confirmation
+async function handleEnvSwitch() {
+    const newEnv = document.getElementById('envSwitcher').value;
+
+    if (!confirm(`Switching to ${newEnv} will log you out and clear all cached data.\n\nYou will need to re-authenticate with eBay.\n\nContinue?`)) {
+        // Revert selection
+        await loadCurrentEnvironment();
+        return;
+    }
+
+    try {
+        const res = await secureFetch('/api/environment/switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ environment: newEnv })
+        });
+
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+
+        // Clear UI state
+        listings = [];
+        allListings = [];
+        enrichedDataCache.clear();
+        calculationCache.clear();
+
+        // Update page title
+        updatePageTitle(newEnv);
+
+        // Refresh auth status and clear listings
+        await checkAuthStatus();
+        renderListings();
+
+        showSuccess(`Switched to ${newEnv} environment. Please reconnect to eBay.`);
+    } catch (err) {
+        showError(`Error switching environment: ${err.message}`);
+        // Revert selection
+        await loadCurrentEnvironment();
+    }
+}
+
+// Update page title with environment badge
+function updatePageTitle(environment) {
+    const titleElement = document.querySelector('h1');
+    if (!titleElement) return;
+
+    const baseTitle = 'eBay Postage Helper';
+    if (environment === 'sandbox') {
+        titleElement.innerHTML = `<span style="background: var(--warning); color: #000; padding: 0.25rem 0.5rem; border-radius: 4px; margin-right: 0.5rem; font-size: 0.7em;">SANDBOX</span>${baseTitle}`;
+    } else {
+        titleElement.textContent = baseTitle;
     }
 }
