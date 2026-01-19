@@ -1049,7 +1049,7 @@ func (h *Handler) ReferenceTariffs(w http.ResponseWriter, r *http.Request) {
 // ReferenceTariffByID handles CRUD operations for a specific tariff rate
 func (h *Handler) ReferenceTariffByID(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path: /api/reference/tariffs/:id
-	idStr := r.URL.Path[len("/api/reference/tariffs/"):]
+	idStr := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/reference/tariffs/"), "/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		errorResponse(w, http.StatusBadRequest, "Invalid tariff ID")
@@ -1166,7 +1166,7 @@ func (h *Handler) ReferenceBrands(w http.ResponseWriter, r *http.Request) {
 // ReferenceBrandByID handles CRUD operations for a specific brand mapping
 func (h *Handler) ReferenceBrandByID(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path: /api/reference/brands/:id
-	idStr := r.URL.Path[len("/api/reference/brands/"):]
+	idStr := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/reference/brands/"), "/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		errorResponse(w, http.StatusBadRequest, "Invalid brand ID")
@@ -1909,8 +1909,9 @@ func (h *Handler) CreateCredential(w http.ResponseWriter, r *http.Request) {
 // HandleCredentialByID handles PUT and DELETE requests for individual credentials
 func (h *Handler) HandleCredentialByID(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from URL path: /api/credentials/:id
+	// Use TrimPrefix/TrimSuffix to handle trailing slashes robustly
 	path := r.URL.Path
-	idStr := path[len("/api/credentials/"):]
+	idStr := strings.TrimSuffix(strings.TrimPrefix(path, "/api/credentials/"), "/")
 	if idStr == "" {
 		errorResponse(w, http.StatusBadRequest, "Missing credential ID")
 		return
