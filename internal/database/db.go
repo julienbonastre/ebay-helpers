@@ -546,16 +546,16 @@ func (db *DB) DeleteTariffRate(id int64) error {
 
 // DeletionNotification represents a marketplace account deletion notification from eBay
 type DeletionNotification struct {
-	ID             int64     `json:"id"`
-	NotificationID string    `json:"notificationId"`
-	Username       string    `json:"username"`
-	UserID         string    `json:"userId,omitempty"`
-	EiasToken      string    `json:"eiasToken,omitempty"`
-	EventDate      time.Time `json:"eventDate"`
-	ReceivedAt     time.Time `json:"receivedAt"`
-	Processed      bool      `json:"processed"`
+	ID             int64      `json:"id"`
+	NotificationID string     `json:"notificationId"`
+	Username       string     `json:"username"`
+	UserID         string     `json:"userId,omitempty"`
+	EiasToken      string     `json:"eiasToken,omitempty"`
+	EventDate      time.Time  `json:"eventDate"`
+	ReceivedAt     time.Time  `json:"receivedAt"`
+	Processed      bool       `json:"processed"`
 	ProcessedAt    *time.Time `json:"processedAt,omitempty"`
-	RawPayload     string    `json:"rawPayload"`
+	RawPayload     string     `json:"rawPayload"`
 }
 
 // CreateDeletionNotification stores a new deletion notification
@@ -622,14 +622,35 @@ func (db *DB) SeedInitialData() error {
 		return nil // Already seeded
 	}
 
-	// Seed brand-COO mappings (from calculator/data.go)
+	// Seed brand-COO mappings (from TariffAndPostalCalculator.xlsx → BrandCOOs worksheet)
 	brandMappings := map[string]string{
-		"Alice McCall": "China", "Arnhem": "India", "Bec + Bridge": "China",
-		"Bronx and Banco": "China", "Camilla": "India", "Faithfull The Brand": "Indonesia",
-		"Free People": "China", "Kookai": "China", "Lack of Color": "China",
-		"Lele Sadoughi": "United States", "Love Bonfire": "China", "LoveShackFancy": "China",
-		"Nine Lives Bazaar": "China", "Reebok x Maison": "Vietnam", "Sabbi": "Australia",
-		"Selkie": "China", "Spell": "China", "Tree of Life": "India", "Wildfox": "China",
+		"Ada + Lou":           "Indonesia",
+		"Aje":                 "China",
+		"Arnhem":              "Indonesia",
+		"Auguste":             "China",
+		"Blue Illusion":       "China",
+		"Camilla Franks":      "India",
+		"Coven & Co":          "China",
+		"Fillyboo":            "Indonesia",
+		"Free People":         "China",
+		"Ghanda":              "Australia",
+		"Innika Choo [Bali]":  "Indonesia",
+		"Innika Choo [China]": "China",
+		"Innika Choo [India]": "India",
+		"Jen's Pirate Booty":  "Mexico",
+		"Kivari":              "China",
+		"Kip & Co":            "India",
+		"Lack of Color":       "China",
+		"Lele Sadoughi":       "United States",
+		"Love Bonfire":        "China",
+		"LoveShackFancy":      "China",
+		"Nine Lives Bazaar":   "China",
+		"Reebok x Maison":     "Vietnam",
+		"Sabbi":               "Australia",
+		"Selkie":              "China",
+		"Spell":               "China",
+		"Tree of Life":        "India",
+		"Wildfox":             "China",
 	}
 
 	for brand, coo := range brandMappings {
@@ -777,22 +798,22 @@ func generatePlaceholders(count int) string {
 
 // ListingItem represents a fully enriched listing for the frontend
 type ListingItem struct {
-	ItemID           string   `json:"itemId"`
-	OfferID          string   `json:"offerId"`
-	Title            string   `json:"title"`
-	Price            float64  `json:"price"`
-	Currency         string   `json:"currency"`
-	ImageURL         string   `json:"imageUrl"`
-	Brand            string   `json:"brand"`
-	CountryOfOrigin  string   `json:"countryOfOrigin"`
-	ExpectedCOO      string   `json:"expectedCoo"`      // From brand mapping
-	COOMatch         string   `json:"cooMatch"`         // "match", "mismatch", "missing"
-	WeightBand       string   `json:"weightBand"`
-	ShippingCost     float64  `json:"shippingCost"`
-	CalculatedCost   float64  `json:"calculatedCost"`   // Server-calculated postage
-	Diff             float64  `json:"diff"`             // ShippingCost - CalculatedCost
-	DiffStatus       string   `json:"diffStatus"`       // "ok" (green) or "bad" (red)
-	Images           []string `json:"images"`
+	ItemID          string   `json:"itemId"`
+	OfferID         string   `json:"offerId"`
+	Title           string   `json:"title"`
+	Price           float64  `json:"price"`
+	Currency        string   `json:"currency"`
+	ImageURL        string   `json:"imageUrl"`
+	Brand           string   `json:"brand"`
+	CountryOfOrigin string   `json:"countryOfOrigin"`
+	ExpectedCOO     string   `json:"expectedCoo"` // From brand mapping
+	COOMatch        string   `json:"cooMatch"`    // "match", "mismatch", "missing"
+	WeightBand      string   `json:"weightBand"`
+	ShippingCost    float64  `json:"shippingCost"`
+	CalculatedCost  float64  `json:"calculatedCost"` // Server-calculated postage
+	Diff            float64  `json:"diff"`           // ShippingCost - CalculatedCost
+	DiffStatus      string   `json:"diffStatus"`     // "ok" (green) or "bad" (red)
+	Images          []string `json:"images"`
 }
 
 // ListingsQuery represents query parameters for listing search
@@ -953,14 +974,14 @@ func (db *DB) GetListings(query ListingsQuery) (*ListingsResult, error) {
 // Formula: AusPost Shipping + Extra Cover + Tariff Duties + Zonos Fees
 func calculatePostage(price, tariffRate float64) float64 {
 	const (
-		handlingFee       = 0.02
-		zonosPercentage   = 0.10
-		zonosFixedCost    = 1.69
-		extraCoverBase    = 4.00
-		extraCoverDiscount = 0.40
+		handlingFee         = 0.02
+		zonosPercentage     = 0.10
+		zonosFixedCost      = 1.69
+		extraCoverBase      = 4.00
+		extraCoverDiscount  = 0.40
 		extraCoverThreshold = 100.0
-		savingsDiscount   = 0.175 // Band 3 default
-		ausPostBase       = 60.00 // Medium weight band
+		savingsDiscount     = 0.175 // Band 3 default
+		ausPostBase         = 60.00 // Medium weight band
 	)
 
 	// AusPost shipping with handling fee and savings discount
