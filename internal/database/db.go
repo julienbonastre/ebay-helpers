@@ -714,6 +714,169 @@ func (db *DB) SeedInitialData() error {
 	return nil
 }
 
+// GetCalculatorConfig loads all calculator configuration from database
+// Returns a complete CalculatorConfig ready for use by calculator functions
+func (db *DB) GetCalculatorConfig() (*calculator.CalculatorConfig, error) {
+	// Load brands
+	brands := make(map[string]calculator.Brand)
+	brandRows, err := db.Query(`
+		SELECT brand_name, primary_coo FROM brand_coo_mappings ORDER BY brand_name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load brands: %w", err)
+	}
+	defer brandRows.Close()
+	for brandRows.Next() {
+		var name, coo string
+		if err := brandRows.Scan(&name, &coo); err != nil {
+			return nil, fmt.Errorf("failed to scan brand: %w", err)
+		}
+		brands[name] = calculator.Brand{PrimaryCOO: coo}
+	}
+
+	// Load tariff rates
+	tariffRates := make(map[string]float64)
+	tariffRows, err := db.Query(`
+		SELECT country_name, tariff_rate FROM tariff_rates ORDER BY country_name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tariffs: %w", err)
+	}
+	defer tariffRows.Close()
+	for tariffRows.Next() {
+		var country string
+		var rate float64
+		if err := tariffRows.Scan(&country, &rate); err != nil {
+			return nil, fmt.Errorf("failed to scan tariff: %w", err)
+		}
+		tariffRates[country] = rate
+	}
+
+	// Load postal zones with weight bands and discount bands
+	postalZones := make(map[string]calculator.PostalZone)
+	zoneRows, err := db.Query(`
+		SELECT zone_id, handling_fee_percent FROM postal_zones ORDER BY zone_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load postal zones: %w", err)
+	}
+	defer zoneRows.Close()
+	for zoneRows.Next() {
+		var zoneID string
+		var handlingFee float64
+		if err := zoneRows.Scan(&zoneID, &handlingFee); err != nil {
+			return nil, fmt.Errorf("failed to scan postal zone: %w", err)
+		}
+
+		// Load weight bands for this zone
+		weightBands := make(map[string]calculator.WeightBand)
+		wbRows, err := db.Query(`
+			SELECT weight_band, max_weight_grams, base_price_aud
+			FROM postal_rates
+			WHERE zone_id = ?
+			ORDER BY max_weight_grams
+		`, zoneID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load weight bands for %s: %w", zoneID, err)
+		}
+		for wbRows.Next() {
+			var bandKey string
+			var maxWeight int
+			var basePrice float64
+			if err := wbRows.Scan(&bandKey, &maxWeight, &basePrice); err != nil {
+				wbRows.Close()
+				return nil, fmt.Errorf("failed to scan weight band: %w", err)
+			}
+			weightBands[bandKey] = calculator.WeightBand{
+				Label:     bandKey,
+				MaxWeight: maxWeight,
+				BasePrice: basePrice,
+			}
+		}
+		wbRows.Close()
+
+		// Load discount bands for this zone
+		discountBands := make(map[int]float64)
+		dbRows, err := db.Query(`
+			SELECT band_level, discount_percent
+			FROM discount_bands
+			WHERE zone_id = ?
+			ORDER BY band_level
+		`, zoneID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load discount bands for %s: %w", zoneID, err)
+		}
+		for dbRows.Next() {
+			var level int
+			var discount float64
+			if err := dbRows.Scan(&level, &discount); err != nil {
+				dbRows.Close()
+				return nil, fmt.Errorf("failed to scan discount band: %w", err)
+			}
+			discountBands[level] = discount
+		}
+		dbRows.Close()
+
+		postalZones[zoneID] = calculator.PostalZone{
+			HandlingFee:   handlingFee,
+			DiscountBands: discountBands,
+			WeightBands:   weightBands,
+		}
+	}
+
+	// Load Zonos settings
+	zonosPercent, _ := db.GetSettingFloat("zonos_processing_charge_percent", 0.10)
+	zonosFlatFee, _ := db.GetSettingFloat("zonos_flat_fee_aud", 1.69)
+
+	// Load ExtraCover settings
+	extraCoverBasePer100, _ := db.GetSettingFloat("extra_cover_base_price_per_100", 4.00)
+	extraCoverThreshold, _ := db.GetSettingFloat("extra_cover_threshold_aud", 100.0)
+	extraCoverWarning, _ := db.GetSettingFloat("extra_cover_warning_threshold_aud", 250.0)
+
+	extraCoverDiscounts := make(map[int]float64)
+	for i := 0; i <= 5; i++ {
+		key := fmt.Sprintf("extra_cover_discount_band_%d", i)
+		defaultVal := 0.0
+		if i > 0 {
+			defaultVal = 0.40
+		}
+		discount, _ := db.GetSettingFloat(key, defaultVal)
+		extraCoverDiscounts[i] = discount
+	}
+
+	return &calculator.CalculatorConfig{
+		PostalZones: postalZones,
+		Brands:      brands,
+		USATariffs: calculator.TariffData{
+			Rates: tariffRates,
+		},
+		Zonos: calculator.ZonosData{
+			ProcessingChargePercent: zonosPercent,
+			FlatFeeAUD:              zonosFlatFee,
+		},
+		ExtraCover: calculator.ExtraCoverData{
+			BasePricePer100:     extraCoverBasePer100,
+			ThresholdAUD:        extraCoverThreshold,
+			WarningThresholdAUD: extraCoverWarning,
+			DiscountBands:       extraCoverDiscounts,
+		},
+		DefaultCOO: "China",
+	}, nil
+}
+
+// GetSettingFloat retrieves a float setting with default fallback
+func (db *DB) GetSettingFloat(key string, defaultValue float64) (float64, error) {
+	setting, err := db.GetSetting(key)
+	if err != nil || setting == nil {
+		return defaultValue, err
+	}
+	var value float64
+	if _, err := fmt.Sscanf(setting.Value, "%f", &value); err != nil {
+		return defaultValue, fmt.Errorf("invalid float value for %s: %w", key, err)
+	}
+	return value, nil
+}
+
 // EnrichedItem represents cached enriched item data from GetItem API
 type EnrichedItem struct {
 	ItemID           string    `json:"itemId"`
