@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/julienbonastre/ebay-helpers/internal/calculator"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -546,16 +547,16 @@ func (db *DB) DeleteTariffRate(id int64) error {
 
 // DeletionNotification represents a marketplace account deletion notification from eBay
 type DeletionNotification struct {
-	ID             int64     `json:"id"`
-	NotificationID string    `json:"notificationId"`
-	Username       string    `json:"username"`
-	UserID         string    `json:"userId,omitempty"`
-	EiasToken      string    `json:"eiasToken,omitempty"`
-	EventDate      time.Time `json:"eventDate"`
-	ReceivedAt     time.Time `json:"receivedAt"`
-	Processed      bool      `json:"processed"`
+	ID             int64      `json:"id"`
+	NotificationID string     `json:"notificationId"`
+	Username       string     `json:"username"`
+	UserID         string     `json:"userId,omitempty"`
+	EiasToken      string     `json:"eiasToken,omitempty"`
+	EventDate      time.Time  `json:"eventDate"`
+	ReceivedAt     time.Time  `json:"receivedAt"`
+	Processed      bool       `json:"processed"`
 	ProcessedAt    *time.Time `json:"processedAt,omitempty"`
-	RawPayload     string    `json:"rawPayload"`
+	RawPayload     string     `json:"rawPayload"`
 }
 
 // CreateDeletionNotification stores a new deletion notification
@@ -611,7 +612,8 @@ func (db *DB) MarkDeletionNotificationProcessed(notificationID string) error {
 	return err
 }
 
-// SeedInitialData seeds the database with initial brand-COO mappings and tariff rates
+// SeedInitialData seeds the database with initial reference data from calculator package
+// Source: TariffAndPostalCalculator.xlsx → BrandCOOs worksheet
 func (db *DB) SeedInitialData() error {
 	// Check if already seeded
 	var count int
@@ -622,29 +624,15 @@ func (db *DB) SeedInitialData() error {
 		return nil // Already seeded
 	}
 
-	// Seed brand-COO mappings (from calculator/data.go)
-	brandMappings := map[string]string{
-		"Alice McCall": "China", "Arnhem": "India", "Bec + Bridge": "China",
-		"Bronx and Banco": "China", "Camilla": "India", "Faithfull The Brand": "Indonesia",
-		"Free People": "China", "Kookai": "China", "Lack of Color": "China",
-		"Lele Sadoughi": "United States", "Love Bonfire": "China", "LoveShackFancy": "China",
-		"Nine Lives Bazaar": "China", "Reebok x Maison": "Vietnam", "Sabbi": "Australia",
-		"Selkie": "China", "Spell": "China", "Tree of Life": "India", "Wildfox": "China",
-	}
-
-	for brand, coo := range brandMappings {
-		if _, err := db.CreateBrandCOOMapping(brand, coo, ""); err != nil {
-			return fmt.Errorf("failed to seed brand %s: %w", brand, err)
+	// Seed brand-COO mappings from calculator.Brands
+	for brandName, brandData := range calculator.Brands {
+		if _, err := db.CreateBrandCOOMapping(brandName, brandData.PrimaryCOO, ""); err != nil {
+			return fmt.Errorf("failed to seed brand %s: %w", brandName, err)
 		}
 	}
 
-	// Seed tariff rates (from calculator/data.go)
-	tariffRates := map[string]float64{
-		"China": 0.20, "India": 0.50, "Indonesia": 0.19, "Vietnam": 0.20,
-		"Mexico": 0.25, "Australia": 0.10, "United States": 0.00,
-	}
-
-	for country, rate := range tariffRates {
+	// Seed tariff rates from calculator.USATariffs
+	for country, rate := range calculator.USATariffs.Rates {
 		_, err := db.Exec(`
 			INSERT INTO tariff_rates (country_name, tariff_rate, notes, effective_date)
 			VALUES (?, ?, ?, ?)
@@ -652,6 +640,75 @@ func (db *DB) SeedInitialData() error {
 		if err != nil {
 			return fmt.Errorf("failed to seed tariff for %s: %w", country, err)
 		}
+	}
+
+	// Seed postal zones from calculator.PostalZones
+	for zoneID, zone := range calculator.PostalZones {
+		hasTariffs := zoneID == "3-USA & Canada"
+		// Extract zone name from ID (e.g., "3-USA & Canada" → "USA & Canada")
+		zoneName := zoneID
+		if len(zoneID) > 2 && zoneID[1] == '-' {
+			zoneName = zoneID[2:]
+		}
+
+		_, err := db.Exec(`
+			INSERT INTO postal_zones (zone_id, zone_name, handling_fee_percent, has_tariffs)
+			VALUES (?, ?, ?, ?)
+		`, zoneID, zoneName, zone.HandlingFee, hasTariffs)
+		if err != nil {
+			return fmt.Errorf("failed to seed postal zone %s: %w", zoneID, err)
+		}
+
+		// Seed weight bands for this zone
+		for bandKey, band := range zone.WeightBands {
+			_, err := db.Exec(`
+				INSERT INTO postal_rates (zone_id, weight_band, max_weight_grams, base_price_aud)
+				VALUES (?, ?, ?, ?)
+			`, zoneID, bandKey, band.MaxWeight, band.BasePrice)
+			if err != nil {
+				return fmt.Errorf("failed to seed postal rate %s/%s: %w", zoneID, bandKey, err)
+			}
+		}
+
+		// Seed discount bands for this zone
+		for level, discount := range zone.DiscountBands {
+			_, err := db.Exec(`
+				INSERT INTO discount_bands (zone_id, band_level, discount_percent)
+				VALUES (?, ?, ?)
+			`, zoneID, level, discount)
+			if err != nil {
+				return fmt.Errorf("failed to seed discount band %s/%d: %w", zoneID, level, err)
+			}
+		}
+	}
+
+	// Seed Zonos settings
+	_, err := db.Exec(`
+		INSERT OR IGNORE INTO settings (key, value, description, data_type) VALUES
+		('zonos_processing_charge_percent', ?, 'Zonos processing charge percentage (e.g., 0.10 for 10%)', 'float'),
+		('zonos_flat_fee_aud', ?, 'Zonos flat fee in AUD', 'float')
+	`, fmt.Sprintf("%.2f", calculator.Zonos.ProcessingChargePercent), fmt.Sprintf("%.2f", calculator.Zonos.FlatFeeAUD))
+	if err != nil {
+		return fmt.Errorf("failed to seed Zonos settings: %w", err)
+	}
+
+	// Seed ExtraCover settings
+	_, err = db.Exec(`
+		INSERT OR IGNORE INTO settings (key, value, description, data_type) VALUES
+		('extra_cover_base_price_per_100', ?, 'Extra cover base price per $100 AUD', 'float'),
+		('extra_cover_threshold_aud', ?, 'Threshold value for extra cover (AUD)', 'float'),
+		('extra_cover_warning_threshold_aud', ?, 'Warning threshold for suggesting extra cover (AUD)', 'float'),
+		('extra_cover_discount_band_0', '0', 'Extra cover discount for band 0', 'float'),
+		('extra_cover_discount_band_1', '0.40', 'Extra cover discount for band 1', 'float'),
+		('extra_cover_discount_band_2', '0.40', 'Extra cover discount for band 2', 'float'),
+		('extra_cover_discount_band_3', '0.40', 'Extra cover discount for band 3', 'float'),
+		('extra_cover_discount_band_4', '0.40', 'Extra cover discount for band 4', 'float'),
+		('extra_cover_discount_band_5', '0.40', 'Extra cover discount for band 5', 'float')
+	`, fmt.Sprintf("%.2f", calculator.ExtraCover.BasePricePer100),
+		fmt.Sprintf("%.2f", calculator.ExtraCover.ThresholdAUD),
+		fmt.Sprintf("%.2f", calculator.ExtraCover.WarningThresholdAUD))
+	if err != nil {
+		return fmt.Errorf("failed to seed ExtraCover settings: %w", err)
 	}
 
 	return nil
@@ -777,22 +834,22 @@ func generatePlaceholders(count int) string {
 
 // ListingItem represents a fully enriched listing for the frontend
 type ListingItem struct {
-	ItemID           string   `json:"itemId"`
-	OfferID          string   `json:"offerId"`
-	Title            string   `json:"title"`
-	Price            float64  `json:"price"`
-	Currency         string   `json:"currency"`
-	ImageURL         string   `json:"imageUrl"`
-	Brand            string   `json:"brand"`
-	CountryOfOrigin  string   `json:"countryOfOrigin"`
-	ExpectedCOO      string   `json:"expectedCoo"`      // From brand mapping
-	COOMatch         string   `json:"cooMatch"`         // "match", "mismatch", "missing"
-	WeightBand       string   `json:"weightBand"`
-	ShippingCost     float64  `json:"shippingCost"`
-	CalculatedCost   float64  `json:"calculatedCost"`   // Server-calculated postage
-	Diff             float64  `json:"diff"`             // ShippingCost - CalculatedCost
-	DiffStatus       string   `json:"diffStatus"`       // "ok" (green) or "bad" (red)
-	Images           []string `json:"images"`
+	ItemID          string   `json:"itemId"`
+	OfferID         string   `json:"offerId"`
+	Title           string   `json:"title"`
+	Price           float64  `json:"price"`
+	Currency        string   `json:"currency"`
+	ImageURL        string   `json:"imageUrl"`
+	Brand           string   `json:"brand"`
+	CountryOfOrigin string   `json:"countryOfOrigin"`
+	ExpectedCOO     string   `json:"expectedCoo"` // From brand mapping
+	COOMatch        string   `json:"cooMatch"`    // "match", "mismatch", "missing"
+	WeightBand      string   `json:"weightBand"`
+	ShippingCost    float64  `json:"shippingCost"`
+	CalculatedCost  float64  `json:"calculatedCost"` // Server-calculated postage
+	Diff            float64  `json:"diff"`           // ShippingCost - CalculatedCost
+	DiffStatus      string   `json:"diffStatus"`     // "ok" (green) or "bad" (red)
+	Images          []string `json:"images"`
 }
 
 // ListingsQuery represents query parameters for listing search
@@ -953,14 +1010,14 @@ func (db *DB) GetListings(query ListingsQuery) (*ListingsResult, error) {
 // Formula: AusPost Shipping + Extra Cover + Tariff Duties + Zonos Fees
 func calculatePostage(price, tariffRate float64) float64 {
 	const (
-		handlingFee       = 0.02
-		zonosPercentage   = 0.10
-		zonosFixedCost    = 1.69
-		extraCoverBase    = 4.00
-		extraCoverDiscount = 0.40
+		handlingFee         = 0.02
+		zonosPercentage     = 0.10
+		zonosFixedCost      = 1.69
+		extraCoverBase      = 4.00
+		extraCoverDiscount  = 0.40
 		extraCoverThreshold = 100.0
-		savingsDiscount   = 0.175 // Band 3 default
-		ausPostBase       = 60.00 // Medium weight band
+		savingsDiscount     = 0.175 // Band 3 default
+		ausPostBase         = 60.00 // Medium weight band
 	)
 
 	// AusPost shipping with handling fee and savings discount
