@@ -68,14 +68,13 @@ type Handler struct {
 // NewHandler creates a new handler
 func NewHandler(db *database.DB, config ebay.Config, sessionStore *database.DBSessionStore, verificationToken, endpoint, environment, marketplaceID string) *Handler {
 	// Load calculator configuration from database
+	// CRITICAL: Database is the single source of truth - fail fast if config cannot be loaded
 	calcConfig, err := db.GetCalculatorConfig()
 	if err != nil {
-		log.Printf("WARNING: Failed to load calculator config from database: %v", err)
-		log.Printf("WARNING: Falling back to static calculator.Default")
-		calcConfig = calculator.Default
-	} else {
-		log.Printf("SUCCESS: Loaded calculator config from database (%d brands, %d zones)", len(calcConfig.Brands), len(calcConfig.PostalZones))
+		log.Fatalf("FATAL: Failed to load calculator config from database: %v\n"+
+			"       Ensure database has been seeded with SeedInitialData()", err)
 	}
+	log.Printf("SUCCESS: Loaded calculator config from database (%d brands, %d zones)", len(calcConfig.Brands), len(calcConfig.PostalZones))
 
 	h := &Handler{
 		db:                db,

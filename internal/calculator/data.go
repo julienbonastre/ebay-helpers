@@ -39,7 +39,3 @@ type ExtraCoverData struct {
 	WarningThresholdAUD float64         `json:"warningThresholdAUD"`
 	DiscountBands       map[int]float64 `json:"discountBands"`
 }
-
-// Default is the default calculator configuration
-// This is set by handlers at runtime from database-loaded config
-var Default *CalculatorConfig
