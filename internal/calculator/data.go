@@ -50,6 +50,9 @@ var (
 	DefaultCOO    = "China"
 )
 
+// Default is the default calculator configuration using static data
+var Default *CalculatorConfig
+
 func init() {
 	// Initialize postal zones (Australia Post international rates)
 	PostalZones = map[string]PostalZone{
@@ -154,5 +157,15 @@ func init() {
 		DiscountBands: map[int]float64{
 			0: 0, 1: 0.40, 2: 0.40, 3: 0.40, 4: 0.40, 5: 0.40,
 		},
+	}
+
+	// Initialize default calculator configuration
+	Default = &CalculatorConfig{
+		PostalZones: PostalZones,
+		Brands:      Brands,
+		USATariffs:  USATariffs,
+		Zonos:       Zonos,
+		ExtraCover:  ExtraCover,
+		DefaultCOO:  DefaultCOO,
 	}
 }

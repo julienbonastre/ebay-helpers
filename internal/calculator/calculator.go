@@ -7,6 +7,16 @@ import (
 	"strings"
 )
 
+// CalculatorConfig holds all configuration data for postage calculations
+type CalculatorConfig struct {
+	PostalZones map[string]PostalZone
+	Brands      map[string]Brand
+	USATariffs  TariffData
+	Zonos       ZonosData
+	ExtraCover  ExtraCoverData
+	DefaultCOO  string
+}
+
 // ShippingResult holds the complete calculation breakdown
 type ShippingResult struct {
 	Inputs    ShippingInputs    `json:"inputs"`
@@ -42,24 +52,24 @@ type ShippingWarnings struct {
 }
 
 // GetCountryOfOrigin returns the COO for a brand, or default
-func GetCountryOfOrigin(brandName string) string {
-	if brand, ok := Brands[brandName]; ok {
+func (c *CalculatorConfig) GetCountryOfOrigin(brandName string) string {
+	if brand, ok := c.Brands[brandName]; ok {
 		return brand.PrimaryCOO
 	}
-	return DefaultCOO
+	return c.DefaultCOO
 }
 
 // GetTariffRate returns the US tariff rate for a country
-func GetTariffRate(country string) float64 {
-	if rate, ok := USATariffs.Rates[country]; ok {
+func (c *CalculatorConfig) GetTariffRate(country string) float64 {
+	if rate, ok := c.USATariffs.Rates[country]; ok {
 		return rate
 	}
-	return USATariffs.Rates[DefaultCOO]
+	return c.USATariffs.Rates[c.DefaultCOO]
 }
 
 // CalculateAusPostShipping calculates the AusPost shipping cost
-func CalculateAusPostShipping(zone, weightBand string, discountBand int) (float64, error) {
-	zoneData, ok := PostalZones[zone]
+func (c *CalculatorConfig) CalculateAusPostShipping(zone, weightBand string, discountBand int) (float64, error) {
+	zoneData, ok := c.PostalZones[zone]
 	if !ok {
 		return 0, fmt.Errorf("unknown zone: %s", zone)
 	}
@@ -82,39 +92,39 @@ func CalculateAusPostShipping(zone, weightBand string, discountBand int) (float6
 }
 
 // CalculateExtraCover calculates insurance cost
-func CalculateExtraCover(itemValueAUD float64, discountBand int) float64 {
-	if itemValueAUD <= ExtraCover.ThresholdAUD {
+func (c *CalculatorConfig) CalculateExtraCover(itemValueAUD float64, discountBand int) float64 {
+	if itemValueAUD <= c.ExtraCover.ThresholdAUD {
 		return 0
 	}
 
-	discount, ok := ExtraCover.DiscountBands[discountBand]
+	discount, ok := c.ExtraCover.DiscountBands[discountBand]
 	if !ok {
 		discount = 0
 	}
 
 	// Formula: (ItemValue - 100) / 100 × $4 × (1 - discount)
-	coverUnits := (itemValueAUD - ExtraCover.ThresholdAUD) / 100
-	cost := coverUnits * ExtraCover.BasePricePer100 * (1 - discount)
+	coverUnits := (itemValueAUD - c.ExtraCover.ThresholdAUD) / 100
+	cost := coverUnits * c.ExtraCover.BasePricePer100 * (1 - discount)
 
 	return round2(cost)
 }
 
 // CalculateTariffDuties calculates US import duties
-func CalculateTariffDuties(itemValueAUD float64, countryOfOrigin string) float64 {
-	rate := GetTariffRate(countryOfOrigin)
+func (c *CalculatorConfig) CalculateTariffDuties(itemValueAUD float64, countryOfOrigin string) float64 {
+	rate := c.GetTariffRate(countryOfOrigin)
 	return round2(itemValueAUD * rate)
 }
 
 // CalculateZonosFees calculates Zonos processing fees
-func CalculateZonosFees(tariffAmount float64) float64 {
-	percentageFee := tariffAmount * Zonos.ProcessingChargePercent
-	total := percentageFee + Zonos.FlatFeeAUD
+func (c *CalculatorConfig) CalculateZonosFees(tariffAmount float64) float64 {
+	percentageFee := tariffAmount * c.Zonos.ProcessingChargePercent
+	total := percentageFee + c.Zonos.FlatFeeAUD
 	return round2(total)
 }
 
 // ShouldWarnExtraCover returns true if extra cover warning should show
-func ShouldWarnExtraCover(itemValueAUD float64, hasExtraCover bool) bool {
-	return itemValueAUD >= ExtraCover.WarningThresholdAUD && !hasExtraCover
+func (c *CalculatorConfig) ShouldWarnExtraCover(itemValueAUD float64, hasExtraCover bool) bool {
+	return itemValueAUD >= c.ExtraCover.WarningThresholdAUD && !hasExtraCover
 }
 
 // CalculateUSAShippingParams holds parameters for the main calculation
@@ -128,29 +138,29 @@ type CalculateUSAShippingParams struct {
 }
 
 // CalculateUSAShipping performs the complete shipping calculation
-func CalculateUSAShipping(params CalculateUSAShippingParams) (*ShippingResult, error) {
+func (c *CalculatorConfig) CalculateUSAShipping(params CalculateUSAShippingParams) (*ShippingResult, error) {
 	zone := "3-USA & Canada"
 
 	// Determine country of origin
 	coo := params.CountryOfOrigin
 	if coo == "" {
-		coo = GetCountryOfOrigin(params.BrandName)
+		coo = c.GetCountryOfOrigin(params.BrandName)
 	}
-	tariffRate := GetTariffRate(coo)
+	tariffRate := c.GetTariffRate(coo)
 
 	// Calculate components
-	ausPostShipping, err := CalculateAusPostShipping(zone, params.WeightBand, params.DiscountBand)
+	ausPostShipping, err := c.CalculateAusPostShipping(zone, params.WeightBand, params.DiscountBand)
 	if err != nil {
 		return nil, err
 	}
 
 	var extraCover float64
 	if params.IncludeExtraCover {
-		extraCover = CalculateExtraCover(params.ItemValueAUD, params.DiscountBand)
+		extraCover = c.CalculateExtraCover(params.ItemValueAUD, params.DiscountBand)
 	}
 
-	tariffDuties := CalculateTariffDuties(params.ItemValueAUD, coo)
-	zonosFees := CalculateZonosFees(tariffDuties)
+	tariffDuties := c.CalculateTariffDuties(params.ItemValueAUD, coo)
+	zonosFees := c.CalculateZonosFees(tariffDuties)
 
 	shippingSubtotal := ausPostShipping + extraCover
 	dutiesSubtotal := tariffDuties + zonosFees
@@ -176,7 +186,7 @@ func CalculateUSAShipping(params CalculateUSAShippingParams) (*ShippingResult, e
 		},
 		Total: round2(total),
 		Warnings: ShippingWarnings{
-			ExtraCoverRecommended: ShouldWarnExtraCover(params.ItemValueAUD, params.IncludeExtraCover),
+			ExtraCoverRecommended: c.ShouldWarnExtraCover(params.ItemValueAUD, params.IncludeExtraCover),
 		},
 	}, nil
 }
@@ -198,9 +208,9 @@ func GetWeightBandFromGrams(weightGrams int) string {
 }
 
 // GetAvailableBrands returns all brand names sorted
-func GetAvailableBrands() []string {
-	brands := make([]string, 0, len(Brands))
-	for name := range Brands {
+func (c *CalculatorConfig) GetAvailableBrands() []string {
+	brands := make([]string, 0, len(c.Brands))
+	for name := range c.Brands {
 		brands = append(brands, name)
 	}
 	sort.Strings(brands)
@@ -216,8 +226,8 @@ type WeightBandInfo struct {
 }
 
 // GetWeightBands returns all weight bands for USA zone
-func GetWeightBands() []WeightBandInfo {
-	zone := PostalZones["3-USA & Canada"]
+func (c *CalculatorConfig) GetWeightBands() []WeightBandInfo {
+	zone := c.PostalZones["3-USA & Canada"]
 	bands := make([]WeightBandInfo, 0, len(zone.WeightBands))
 
 	// Order matters for display
@@ -243,9 +253,9 @@ type TariffCountryInfo struct {
 }
 
 // GetTariffCountries returns all countries with tariff rates
-func GetTariffCountries() []TariffCountryInfo {
-	countries := make([]TariffCountryInfo, 0, len(USATariffs.Rates))
-	for country, rate := range USATariffs.Rates {
+func (c *CalculatorConfig) GetTariffCountries() []TariffCountryInfo {
+	countries := make([]TariffCountryInfo, 0, len(c.USATariffs.Rates))
+	for country, rate := range c.USATariffs.Rates {
 		countries = append(countries, TariffCountryInfo{
 			Country:     country,
 			Rate:        rate,
@@ -290,11 +300,11 @@ type CalculateAllZonesParams struct {
 }
 
 // CalculateAllZones performs shipping calculation for all zones
-func CalculateAllZones(params CalculateAllZonesParams) (*MultiZoneResult, error) {
+func (c *CalculatorConfig) CalculateAllZones(params CalculateAllZonesParams) (*MultiZoneResult, error) {
 	// Determine country of origin
 	coo := params.CountryOfOrigin
 	if coo == "" {
-		coo = GetCountryOfOrigin(params.BrandName)
+		coo = c.GetCountryOfOrigin(params.BrandName)
 	}
 
 	// Get all zones in a consistent order
@@ -302,7 +312,7 @@ func CalculateAllZones(params CalculateAllZonesParams) (*MultiZoneResult, error)
 	results := make([]ZoneShippingResult, 0, len(zoneOrder))
 
 	for _, zoneID := range zoneOrder {
-		_, ok := PostalZones[zoneID]
+		_, ok := c.PostalZones[zoneID]
 		if !ok {
 			continue // Skip if zone not found
 		}
@@ -311,14 +321,14 @@ func CalculateAllZones(params CalculateAllZonesParams) (*MultiZoneResult, error)
 		hasTariffs := zoneID == "3-USA & Canada"
 
 		// Calculate components
-		ausPostShipping, err := CalculateAusPostShipping(zoneID, params.WeightBand, params.DiscountBand)
+		ausPostShipping, err := c.CalculateAusPostShipping(zoneID, params.WeightBand, params.DiscountBand)
 		if err != nil {
 			return nil, fmt.Errorf("zone %s: %w", zoneID, err)
 		}
 
 		var extraCover float64
 		if params.IncludeExtraCover {
-			extraCover = CalculateExtraCover(params.ItemValueAUD, params.DiscountBand)
+			extraCover = c.CalculateExtraCover(params.ItemValueAUD, params.DiscountBand)
 		}
 
 		shippingSubtotal := ausPostShipping + extraCover
@@ -327,9 +337,9 @@ func CalculateAllZones(params CalculateAllZonesParams) (*MultiZoneResult, error)
 		var tariffDuties, zonosFees, dutiesSubtotal float64
 		var tariffRate float64
 		if hasTariffs {
-			tariffRate = GetTariffRate(coo)
-			tariffDuties = CalculateTariffDuties(params.ItemValueAUD, coo)
-			zonosFees = CalculateZonosFees(tariffDuties)
+			tariffRate = c.GetTariffRate(coo)
+			tariffDuties = c.CalculateTariffDuties(params.ItemValueAUD, coo)
+			zonosFees = c.CalculateZonosFees(tariffDuties)
 			dutiesSubtotal = tariffDuties + zonosFees
 		}
 
@@ -363,7 +373,7 @@ func CalculateAllZones(params CalculateAllZonesParams) (*MultiZoneResult, error)
 			},
 			Total: round2(total),
 			Warnings: ShippingWarnings{
-				ExtraCoverRecommended: ShouldWarnExtraCover(params.ItemValueAUD, params.IncludeExtraCover),
+				ExtraCoverRecommended: c.ShouldWarnExtraCover(params.ItemValueAUD, params.IncludeExtraCover),
 			},
 			HasTariffs: hasTariffs,
 		})
