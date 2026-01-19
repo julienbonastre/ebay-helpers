@@ -13,6 +13,113 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
+// Reference data for database seeding
+// Source: TariffAndPostalCalculator.xlsx → BrandCOOs worksheet
+var (
+	// Brand -> Country of Origin mappings (27 brands from Excel)
+	seedBrands = map[string]calculator.Brand{
+		"Ada + Lou":           {PrimaryCOO: "Indonesia", SecondaryCOO: []string{}},
+		"Aje":                 {PrimaryCOO: "China", SecondaryCOO: []string{"India", "Malaysia"}},
+		"Arnhem":              {PrimaryCOO: "Indonesia", SecondaryCOO: []string{}},
+		"Auguste":             {PrimaryCOO: "China", SecondaryCOO: []string{}},
+		"Blue Illusion":       {PrimaryCOO: "China", SecondaryCOO: []string{}},
+		"Camilla Franks":      {PrimaryCOO: "India", SecondaryCOO: []string{"China"}},
+		"Coven & Co":          {PrimaryCOO: "China", SecondaryCOO: []string{"Australia"}},
+		"Fillyboo":            {PrimaryCOO: "Indonesia", SecondaryCOO: []string{"India"}},
+		"Free People":         {PrimaryCOO: "China", SecondaryCOO: []string{"Vietnam"}},
+		"Ghanda":              {PrimaryCOO: "Australia", SecondaryCOO: []string{}},
+		"Innika Choo [Bali]":  {PrimaryCOO: "Indonesia", SecondaryCOO: []string{"Vietnam", "Malaysia"}},
+		"Innika Choo [China]": {PrimaryCOO: "China", SecondaryCOO: []string{}},
+		"Innika Choo [India]": {PrimaryCOO: "India", SecondaryCOO: []string{}},
+		"Jen's Pirate Booty":  {PrimaryCOO: "Mexico", SecondaryCOO: []string{}},
+		"Kivari":              {PrimaryCOO: "China", SecondaryCOO: []string{}},
+		"Kip & Co":            {PrimaryCOO: "India", SecondaryCOO: []string{}},
+		"Lack of Color":       {PrimaryCOO: "China", SecondaryCOO: []string{}, Type: "Hats"},
+		"Lele Sadoughi":       {PrimaryCOO: "United States", SecondaryCOO: []string{}, Type: "Headbands"},
+		"Love Bonfire":        {PrimaryCOO: "China", SecondaryCOO: []string{}},
+		"LoveShackFancy":      {PrimaryCOO: "China", SecondaryCOO: []string{"India"}},
+		"Nine Lives Bazaar":   {PrimaryCOO: "China", SecondaryCOO: []string{}},
+		"Reebok x Maison":     {PrimaryCOO: "Vietnam", SecondaryCOO: []string{}, Type: "Sneakers"},
+		"Sabbi":               {PrimaryCOO: "Australia", SecondaryCOO: []string{}},
+		"Selkie":              {PrimaryCOO: "China", SecondaryCOO: []string{}},
+		"Spell":               {PrimaryCOO: "China", SecondaryCOO: []string{}},
+		"Tree of Life":        {PrimaryCOO: "India", SecondaryCOO: []string{}},
+		"Wildfox":             {PrimaryCOO: "China", SecondaryCOO: []string{"USA"}, Type: "Sunnies"},
+	}
+
+	// US IEEPA tariff rates by country
+	seedTariffs = map[string]float64{
+		"China":         0.20,
+		"Malaysia":      0.19,
+		"Indonesia":     0.19,
+		"Vietnam":       0.20,
+		"Japan":         0.15,
+		"India":         0.50,
+		"Mexico":        0.25,
+		"Australia":     0.10,
+		"United States": 0.00,
+	}
+
+	// Postal zones with handling fees, weight bands, and discount bands
+	seedPostalZones = map[string]calculator.PostalZone{
+		"3-USA & Canada": {
+			HandlingFee: 0.02,
+			DiscountBands: map[int]float64{
+				0: 0, 1: 0.05, 2: 0.15, 3: 0.20, 4: 0.25, 5: 0.30,
+			},
+			WeightBands: map[string]calculator.WeightBand{
+				"XSmall": {Label: "XSmall [< 250g]", MaxWeight: 250, BasePrice: 22.30},
+				"Small":  {Label: "Small [250 - 500g]", MaxWeight: 500, BasePrice: 29.00},
+				"Medium": {Label: "Medium [500 - 1kg]", MaxWeight: 1000, BasePrice: 42.20},
+				"Large":  {Label: "Large [1 - 1.5kg]", MaxWeight: 1500, BasePrice: 55.55},
+				"XLarge": {Label: "XLarge [1.5kg - 2kg]", MaxWeight: 2000, BasePrice: 68.85},
+			},
+		},
+		"4-UK & Ireland": {
+			HandlingFee: 0.02,
+			DiscountBands: map[int]float64{
+				0: 0, 1: 0.05, 2: 0.15, 3: 0.20, 4: 0.25, 5: 0.30,
+			},
+			WeightBands: map[string]calculator.WeightBand{
+				"XSmall": {Label: "XSmall [< 250g]", MaxWeight: 250, BasePrice: 27.50},
+				"Small":  {Label: "Small [250 - 500g]", MaxWeight: 500, BasePrice: 34.40},
+				"Medium": {Label: "Medium [500 - 1kg]", MaxWeight: 1000, BasePrice: 48.30},
+				"Large":  {Label: "Large [1 - 1.5kg]", MaxWeight: 1500, BasePrice: 62.15},
+				"XLarge": {Label: "XLarge [1.5kg - 2kg]", MaxWeight: 2000, BasePrice: 76.00},
+			},
+		},
+		"1-New Zealand": {
+			HandlingFee: 0.02,
+			DiscountBands: map[int]float64{
+				0: 0, 1: 0.05, 2: 0.20, 3: 0.25, 4: 0.30, 5: 0.35,
+			},
+			WeightBands: map[string]calculator.WeightBand{
+				"XSmall": {Label: "XSmall [< 250g]", MaxWeight: 250, BasePrice: 16.30},
+				"Small":  {Label: "Small [250 - 500g]", MaxWeight: 500, BasePrice: 19.65},
+				"Medium": {Label: "Medium [500 - 1kg]", MaxWeight: 1000, BasePrice: 26.40},
+				"Large":  {Label: "Large [1 - 1.5kg]", MaxWeight: 1500, BasePrice: 33.15},
+				"XLarge": {Label: "XLarge [1.5kg - 2kg]", MaxWeight: 2000, BasePrice: 39.90},
+			},
+		},
+	}
+
+	// Zonos processing fees
+	seedZonos = calculator.ZonosData{
+		ProcessingChargePercent: 0.10,
+		FlatFeeAUD:              1.69,
+	}
+
+	// Extra cover (insurance) pricing
+	seedExtraCover = calculator.ExtraCoverData{
+		BasePricePer100:     4.00,
+		ThresholdAUD:        100,
+		WarningThresholdAUD: 250,
+		DiscountBands: map[int]float64{
+			0: 0, 1: 0.40, 2: 0.40, 3: 0.40, 4: 0.40, 5: 0.40,
+		},
+	}
+)
+
 // DB wraps the SQLite database
 type DB struct {
 	*sql.DB
@@ -624,15 +731,15 @@ func (db *DB) SeedInitialData() error {
 		return nil // Already seeded
 	}
 
-	// Seed brand-COO mappings from calculator.Brands
-	for brandName, brandData := range calculator.Brands {
+	// Seed brand-COO mappings from local seed data
+	for brandName, brandData := range seedBrands {
 		if _, err := db.CreateBrandCOOMapping(brandName, brandData.PrimaryCOO, ""); err != nil {
 			return fmt.Errorf("failed to seed brand %s: %w", brandName, err)
 		}
 	}
 
-	// Seed tariff rates from calculator.USATariffs
-	for country, rate := range calculator.USATariffs.Rates {
+	// Seed tariff rates from local seed data
+	for country, rate := range seedTariffs {
 		_, err := db.Exec(`
 			INSERT INTO tariff_rates (country_name, tariff_rate, notes, effective_date)
 			VALUES (?, ?, ?, ?)
@@ -642,8 +749,8 @@ func (db *DB) SeedInitialData() error {
 		}
 	}
 
-	// Seed postal zones from calculator.PostalZones
-	for zoneID, zone := range calculator.PostalZones {
+	// Seed postal zones from local seed data
+	for zoneID, zone := range seedPostalZones {
 		hasTariffs := zoneID == "3-USA & Canada"
 		// Extract zone name from ID (e.g., "3-USA & Canada" → "USA & Canada")
 		zoneName := zoneID
@@ -687,7 +794,7 @@ func (db *DB) SeedInitialData() error {
 		INSERT OR IGNORE INTO settings (key, value, description, data_type) VALUES
 		('zonos_processing_charge_percent', ?, 'Zonos processing charge percentage (e.g., 0.10 for 10%)', 'float'),
 		('zonos_flat_fee_aud', ?, 'Zonos flat fee in AUD', 'float')
-	`, fmt.Sprintf("%.2f", calculator.Zonos.ProcessingChargePercent), fmt.Sprintf("%.2f", calculator.Zonos.FlatFeeAUD))
+	`, fmt.Sprintf("%.2f", seedZonos.ProcessingChargePercent), fmt.Sprintf("%.2f", seedZonos.FlatFeeAUD))
 	if err != nil {
 		return fmt.Errorf("failed to seed Zonos settings: %w", err)
 	}
@@ -704,9 +811,9 @@ func (db *DB) SeedInitialData() error {
 		('extra_cover_discount_band_3', '0.40', 'Extra cover discount for band 3', 'float'),
 		('extra_cover_discount_band_4', '0.40', 'Extra cover discount for band 4', 'float'),
 		('extra_cover_discount_band_5', '0.40', 'Extra cover discount for band 5', 'float')
-	`, fmt.Sprintf("%.2f", calculator.ExtraCover.BasePricePer100),
-		fmt.Sprintf("%.2f", calculator.ExtraCover.ThresholdAUD),
-		fmt.Sprintf("%.2f", calculator.ExtraCover.WarningThresholdAUD))
+	`, fmt.Sprintf("%.2f", seedExtraCover.BasePricePer100),
+		fmt.Sprintf("%.2f", seedExtraCover.ThresholdAUD),
+		fmt.Sprintf("%.2f", seedExtraCover.WarningThresholdAUD))
 	if err != nil {
 		return fmt.Errorf("failed to seed ExtraCover settings: %w", err)
 	}

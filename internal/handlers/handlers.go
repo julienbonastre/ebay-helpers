@@ -46,6 +46,7 @@ type Handler struct {
 	sessionStore      *database.DBSessionStore   // Session store for per-user tokens
 	currentAccount    *database.Account          // Current instance's account (can be nil until OAuth)
 	syncService       *syncpkg.Service
+	calcConfig        *calculator.CalculatorConfig // Calculator configuration loaded from database
 	mu                sync.RWMutex
 	oauthState        string
 	verificationToken string                     // eBay verification token for account deletion notifications
@@ -66,12 +67,23 @@ type Handler struct {
 
 // NewHandler creates a new handler
 func NewHandler(db *database.DB, config ebay.Config, sessionStore *database.DBSessionStore, verificationToken, endpoint, environment, marketplaceID string) *Handler {
+	// Load calculator configuration from database
+	calcConfig, err := db.GetCalculatorConfig()
+	if err != nil {
+		log.Printf("WARNING: Failed to load calculator config from database: %v", err)
+		log.Printf("WARNING: Falling back to static calculator.Default")
+		calcConfig = calculator.Default
+	} else {
+		log.Printf("SUCCESS: Loaded calculator config from database (%d brands, %d zones)", len(calcConfig.Brands), len(calcConfig.PostalZones))
+	}
+
 	h := &Handler{
 		db:                db,
 		ebayConfig:        config,
 		sessionStore:      sessionStore,
 		currentAccount:    nil, // Will be set after OAuth
 		syncService:       syncpkg.NewService(db),
+		calcConfig:        calcConfig,
 		verificationToken: verificationToken,
 		endpoint:          endpoint,
 		environment:       environment,
@@ -912,7 +924,7 @@ func (h *Handler) CalculateShipping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := calculator.Default.CalculateUSAShipping(calculator.CalculateUSAShippingParams{
+	result, err := h.calcConfig.CalculateUSAShipping(calculator.CalculateUSAShippingParams{
 		ItemValueAUD:      req.ItemValueAUD,
 		WeightBand:        req.WeightBand,
 		BrandName:         req.BrandName,
@@ -930,7 +942,7 @@ func (h *Handler) CalculateShipping(w http.ResponseWriter, r *http.Request) {
 
 // GetBrands returns available brands
 func (h *Handler) GetBrands(w http.ResponseWriter, r *http.Request) {
-	brands := calculator.Default.GetAvailableBrands()
+	brands := h.calcConfig.GetAvailableBrands()
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"brands": brands,
 		"total":  len(brands),
@@ -939,7 +951,7 @@ func (h *Handler) GetBrands(w http.ResponseWriter, r *http.Request) {
 
 // GetWeightBands returns available weight bands
 func (h *Handler) GetWeightBands(w http.ResponseWriter, r *http.Request) {
-	bands := calculator.Default.GetWeightBands()
+	bands := h.calcConfig.GetWeightBands()
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"weightBands": bands,
 	})
@@ -947,7 +959,7 @@ func (h *Handler) GetWeightBands(w http.ResponseWriter, r *http.Request) {
 
 // GetTariffCountries returns countries with tariff rates
 func (h *Handler) GetTariffCountries(w http.ResponseWriter, r *http.Request) {
-	countries := calculator.Default.GetTariffCountries()
+	countries := h.calcConfig.GetTariffCountries()
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"countries": countries,
 	})
@@ -966,7 +978,7 @@ func (h *Handler) CalculateAllZones(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := calculator.Default.CalculateAllZones(calculator.CalculateAllZonesParams{
+	result, err := h.calcConfig.CalculateAllZones(calculator.CalculateAllZonesParams{
 		ItemValueAUD:      req.ItemValueAUD,
 		WeightBand:        req.WeightBand,
 		BrandName:         req.BrandName,
@@ -1620,7 +1632,7 @@ func (h *Handler) BatchCalculate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get expected COO from brand mapping
-		expectedCOO := calculator.Default.GetCountryOfOrigin(enriched.Brand)
+		expectedCOO := h.calcConfig.GetCountryOfOrigin(enriched.Brand)
 
 		// Determine COO status
 		var cooStatus string
@@ -1635,7 +1647,7 @@ func (h *Handler) BatchCalculate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Calculate postage using backend calculator
-		result, err := calculator.Default.CalculateUSAShipping(calculator.CalculateUSAShippingParams{
+		result, err := h.calcConfig.CalculateUSAShipping(calculator.CalculateUSAShippingParams{
 			ItemValueAUD:      item.Price,
 			WeightBand:        "Medium", // Default - TODO: make configurable
 			BrandName:         enriched.Brand,
