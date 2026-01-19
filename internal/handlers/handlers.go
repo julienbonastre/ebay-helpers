@@ -28,13 +28,13 @@ type EnrichedItemData struct {
 	ItemID           string    `json:"itemId"`
 	Brand            string    `json:"brand"`
 	CountryOfOrigin  string    `json:"countryOfOrigin"`
-	ExpectedCOO      string    `json:"expectedCoo"`      // From brand mapping
-	COOStatus        string    `json:"cooStatus"`        // "match", "mismatch", "missing"
+	ExpectedCOO      string    `json:"expectedCoo"` // From brand mapping
+	COOStatus        string    `json:"cooStatus"`   // "match", "mismatch", "missing"
 	ShippingCost     string    `json:"shippingCost"`
 	ShippingCurrency string    `json:"shippingCurrency"`
-	CalculatedCost   float64   `json:"calculatedCost"`   // Server-calculated postage
-	Diff             float64   `json:"diff"`             // ShippingCost - CalculatedCost
-	DiffStatus       string    `json:"diffStatus"`       // "ok" (green) or "bad" (red)
+	CalculatedCost   float64   `json:"calculatedCost"` // Server-calculated postage
+	Diff             float64   `json:"diff"`           // ShippingCost - CalculatedCost
+	DiffStatus       string    `json:"diffStatus"`     // "ok" (green) or "bad" (red)
 	Images           []string  `json:"images"`
 	EnrichedAt       time.Time `json:"enrichedAt"`
 }
@@ -42,28 +42,28 @@ type EnrichedItemData struct {
 // Handler holds dependencies for HTTP handlers
 type Handler struct {
 	db                *database.DB
-	ebayConfig        ebay.Config                // eBay configuration (no shared client)
-	sessionStore      *database.DBSessionStore   // Session store for per-user tokens
-	currentAccount    *database.Account          // Current instance's account (can be nil until OAuth)
+	ebayConfig        ebay.Config              // eBay configuration (no shared client)
+	sessionStore      *database.DBSessionStore // Session store for per-user tokens
+	currentAccount    *database.Account        // Current instance's account (can be nil until OAuth)
 	syncService       *syncpkg.Service
 	calcConfig        *calculator.CalculatorConfig // Calculator configuration loaded from database
 	mu                sync.RWMutex
 	oauthState        string
-	verificationToken string                     // eBay verification token for account deletion notifications
-	endpoint          string                     // Public endpoint URL for this server
-	environment       string                     // "production" or "sandbox"
-	marketplaceID     string                     // Default marketplace ID
-	encryptionKey     []byte                     // AES-256 key for credential encryption
+	verificationToken string // eBay verification token for account deletion notifications
+	endpoint          string // Public endpoint URL for this server
+	environment       string // "production" or "sandbox"
+	marketplaceID     string // Default marketplace ID
+	encryptionKey     []byte // AES-256 key for credential encryption
 
 	// Item enrichment cache and background worker
-	enrichmentCache   map[string]*EnrichedItemData // ItemID -> EnrichedItemData
-	enrichmentMutex   sync.RWMutex                 // Protects enrichmentCache
-	enrichmentQueue   chan string                  // Queue of ItemIDs to enrich
+	enrichmentCache map[string]*EnrichedItemData // ItemID -> EnrichedItemData
+	enrichmentMutex sync.RWMutex                 // Protects enrichmentCache
+	enrichmentQueue chan string                  // Queue of ItemIDs to enrich
 
 	// Listings cache - avoids re-fetching from eBay on every page load
-	listingsCache     []map[string]interface{}     // Cached offer listings
-	listingsCacheTime time.Time                    // When cache was last updated
-	listingsMutex     sync.RWMutex                 // Protects listingsCache
+	listingsCache     []map[string]interface{} // Cached offer listings
+	listingsCacheTime time.Time                // When cache was last updated
+	listingsMutex     sync.RWMutex             // Protects listingsCache
 }
 
 // NewHandler creates a new handler
@@ -307,7 +307,6 @@ func (h *Handler) GetCurrentAccount(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	account := h.currentAccount
 	h.mu.RUnlock()
-
 
 	// If no account in memory but user has valid session, hydrate from eBay
 	if account == nil {
@@ -1778,9 +1777,9 @@ func (h *Handler) UpdateSetting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{
-		"status":  "updated",
-		"key":     key,
-		"value":   req.Value,
+		"status": "updated",
+		"key":    key,
+		"value":  req.Value,
 	})
 }
 
@@ -2113,7 +2112,13 @@ func (h *Handler) SwitchEnvironment(w http.ResponseWriter, r *http.Request) {
 	h.enrichmentCache = make(map[string]*EnrichedItemData)
 	h.enrichmentMutex.Unlock()
 
-	log.Printf("Environment switched to %s - session and caches cleared", req.Environment)
+	// Log with safe value - req.Environment already validated to be "production" or "sandbox"
+	// CodeQL: This is safe because validation at line 2084 ensures only whitelisted values
+	safeEnv := "production" // default
+	if req.Environment == "sandbox" {
+		safeEnv = "sandbox"
+	}
+	log.Printf("Environment switched to %s - session and caches cleared", safeEnv)
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"status":      "switched",
